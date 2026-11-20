@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>물담 · 댐 용수공급 평가</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<nav class="platform-bar" aria-label="물마루 플랫폼">
+  <a class="pb-brand" href="https://wonjejj-glitch.github.io/mulmaru/"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 15.5c2.6 0 3.9-1.7 5.3-4.5C8.8 8 10.2 4.8 12 4.8s3.2 3.2 4.7 6.2c1.4 2.8 2.7 4.5 5.3 4.5" fill="none" stroke="#5cc98d" stroke-width="2.3" stroke-linecap="round"/><path d="M2 19.5c2 0 3-1 5-1s3 1 5 1 3-1 5-1 3 1 5 1" fill="none" stroke="#ecf6f0" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></svg><span>물마루</span></a>
+  <span class="pb-sep" aria-hidden="true"></span>
+  <ul class="pb-menu">
+    <li><a href="https://wonjejj-glitch.github.io/muldam/" aria-current="page">물담<span class="pb-desc">댐 용수공급</span></a></li>
+    <li><a href="https://wonjejj-glitch.github.io/mulgil/">물길<span class="pb-desc">관망해석</span></a></li>
+    <li><a href="https://wonjejj-glitch.github.io/mulkko/">물꼬<span class="pb-desc">하수관로 정비</span></a></li>
+  </ul>
+  <a class="pb-portal" href="https://wonjejj-glitch.github.io/mulmaru/">포털</a>
+</nav>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2.5c-3.8 4.6-6.5 8.3-6.5 11.6a6.5 6.5 0 0 0 13 0c0-3.3-2.7-7-6.5-11.6z" fill="currentColor"/></svg>
+    <div>
+      <h1>물담 <span style="font-weight:400;font-size:.7em">댐 용수공급 평가</span></h1>
+      <p id="subtitle">여러 댐의 가뭄대응단계·이수안전도·저수위 평가와 정수장 공급 가능성 판단</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span class="datastamp" id="dataStamp"></span>
+    <a class="btn ghost" href="muldam_easy_guide.pdf" target="_blank" rel="noopener" title="5쪽 PDF">쉬운 사용설명서</a> <a class="btn ghost" href="guide.html" target="_blank" rel="noopener">용어·개념 안내</a>
+    <button class="btn ghost" id="btnPrint">보고서 인쇄</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="overview" class="on">종합 현황</button>
+  <button data-tab="dam">댐 평가 (이수안전도)</button>
+  <button data-tab="stage">가뭄단계 분석</button>
+  <button data-tab="level">운영수위 변경 분석</button>
+  <button data-tab="plant">여유용량·공급 검토</button>
+  <button data-tab="registry">정수장·노선 관리</button>
+  <button data-tab="data">자료·방법론</button>
+</nav>
+
+<main class="wrap"><div class="box-note purpose" style="margin:0 0 12px"><b>물담의 취지</b> 공개된 자료(MyWater, 국가가뭄정보포털)와 공개된 산정식(물수지, Hazen-Williams 등)만으로 댐의 이수안전도와 저수위를 살펴, 기후위기로 잦아지는 가뭄에 미리 대비하도록 돕는 도구입니다. <b>결과는 단순 수식에 따른 기본계획 수준의 개략값입니다.</b> 실제 공급 가능량과 시설용량은 관계기관·지자체 협의, 수리권, 연계운영, 수질 등 여러 영향을 세부적으로 종합해 판단해야 합니다.</div>
+  <!-- ======== 종합 현황 ======== -->
+  <section class="tab on" id="tab-overview">
+    <div class="card controls">
+      <label class="inline">구분 <select id="fKind"><option value="">전체</option><option>용수댐</option><option>다목적댐</option></select></label>
+      <label class="inline">수계 <select id="fRiver"></select></label>
+      <label class="inline">이수안전도 판정 기준 <select class="critSel"></select></label>
+      <label class="inline">모의 자료 <select class="srcSel"><option value="mywater">MyWater 일자료</option></select></label>
+      <span class="hint" id="ovHint"></span>
+    </div>
+    <div class="kpis" id="ovKpis"></div>
+    <div class="row2">
+      <div class="card"><h3>위치도 <span class="muted small">— 원: 댐(색=현재 대응단계), 사각형: 검토 정수장 · MyWater GIS 좌표</span></h3><div id="ovMap" class="map"></div></div>
+      <div class="card"><h3>댐별 추가 공급 여유 <span class="muted small">— 계획 공급량 대비 %, 댐 단독 모의(참고값)</span></h3><div class="chartbox h340"><canvas id="cOvBars"></canvas></div></div>
+    </div>
+    <div class="card"><h3>댐별 평가 총괄</h3><div class="tablewrap" id="ovTable"></div>
+      <div class="box-note"><b>이 표의 ‘여유 없음’은 댐 계획이 틀렸다는 뜻이 아닙니다.</b> 계획 공급량(MyWater 연간 용수공급용량)은 댐 계획 당시의 조건으로 정한 값입니다. 계획 당시의 유입량 자료와 신뢰도 기준을 쓰고, 댐 하류 기준지점에서 지류 유입까지 합쳐 공급하며, 연계 댐과 함께 운영하고, 계절에 따라 방류량을 조절하는 것을 전제로 합니다. 이 플랫폼은 MyWater 실측 유입(1990년~, 2015·2017년 같은 큰 가뭄 포함)만으로 <b>댐 하나가 매일 같은 양을 낸다</b>는 단순한 조건에서 다시 계산합니다. 조건이 다르기 때문에 계획량이 적정한지 판단하는 자료로 쓰면 안 되고, 새 수요를 얹을 여지가 있는지 가늠하는 참고값으로만 봐야 합니다.
+        <ul><li>충주·대청·안동 같은 다목적댐의 계획량에는 하류 하천유지·농업용수가 들어 있습니다. 이 물은 실제로 하류 지류 유입과 함께 공급되고, 가뭄 때는 단계별로 감량합니다.</li>
+        <li>소양강댐과 충주댐은 한강수계에서 함께 운영합니다. 소양강댐의 여유와 충주댐의 미달은 따로 보지 말고 함께 봐야 합니다. 안동·임하댐(도수터널), 대청·용담댐(상하류)도 마찬가지입니다.</li>
+        <li>판정 기준을 ‘10·20년 빈도 가뭄까지(연 신뢰도 90·95%)’로 바꾸면 값이 크게 달라집니다. 기본값(관측기간 최대 가뭄까지, 부족 0회)이 가장 엄격합니다.</li></ul></div></div>
+  </section>
+
+  <!-- ======== 댐 평가 ======== -->
+  <section class="tab" id="tab-dam">
+    <div class="card controls">
+      <label class="inline">댐 <select id="damSel"></select></label>
+      <label class="inline">모의 자료 <select class="srcSel"><option value="mywater">MyWater 일자료</option></select></label>
+      <label class="inline">판정 기준 <select class="critSel"></select></label>
+      <label class="inline">기존 공급량 (백만㎥/년) <input type="number" id="damDemand" step="0.1"></label>
+      <label class="inline">추가 공급 검토량 (㎥/일) <input type="number" id="damAdd" step="1000"></label>
+      <button class="btn small" id="damRun" style="margin:0" title="입력값으로 물수지 모의를 다시 돌립니다(입력 중에도 자동으로 다시 계산됩니다)">다시 계산</button>
+    </div>
+    <div class="verdict" id="damVerdict"></div>
+    <div class="kpis" id="damKpis"></div>
+    <div class="card">
+      <div class="toolbar"><h3 style="margin:0">저수량 모의 <span class="muted small">— 관측 vs 모의(기존공급, 기존+추가)</span></h3><div class="seg" id="damYearSeg"></div></div>
+      <div class="chartbox h360"><canvas id="cDam"></canvas><div class="tip" id="tipDam"></div></div>
+      <div class="legend"><span><i style="background:#9aa7b4"></i>관측 저수량</span><span><i style="background:#1d4f86"></i>모의(기존 공급)</span><span><i style="background:#e0662b"></i>모의(기존+추가)</span><span><i style="background:#111"></i>저수위·상시만수위</span></div>
+    </div>
+    <div class="row2">
+      <div class="card"><h3>이수안전도 지표</h3><div class="tablewrap" id="damRel"></div></div>
+      <div class="card"><h3>댐 제원 <span class="muted small" id="damSpecSrc"></span></h3><div class="tablewrap" id="damSpec"></div></div>
+    </div>
+    <div class="card" id="damCurveCard"><h3>수위-저수량 곡선 <span class="muted small" id="damCurveSrc"></span></h3>
+      <div class="row2">
+        <div><div class="chartbox h300"><canvas id="cDamCurve"></canvas></div>
+          <div class="legend"><span><i style="background:#1d4f86"></i>곡선식 저수량(백만㎥)</span><span><i style="background:#e0662b"></i>관측 저수량(최근 3년)</span><span><i style="background:#111"></i>주요 수위</span></div></div>
+        <div class="tablewrap" id="damCurveLv"></div>
+      </div>
+      <h4 style="margin:14px 0 6px">구간별 곡선식 <span class="muted small">— V(백만㎥) = f(H, EL.m)</span></h4>
+      <div class="tablewrap" id="damCurveSeg"></div>
+      <p class="hint" id="damCurveNote"></p>
+    </div>
+    <div class="card"><h3>추가 공급량별 신뢰도 <span class="muted small">— 연 부족횟수·기간신뢰도</span></h3><div class="chartbox h260"><canvas id="cDamSens"></canvas></div>
+      <div class="legend"><span><i style="background:#1d4f86"></i>연단위 기간신뢰도(%)</span><span><i style="background:#e0662b"></i>일(반순) 기간신뢰도(%)</span><span><i style="background:#2f9e6e"></i>양적신뢰도(%)</span></div></div>
+    <div class="card" id="damD05Card"><h3>기본계획 장기모의 검증 비교</h3><div class="tablewrap" id="damD05"></div></div>
+  </section>
+
+  <!-- ======== 가뭄단계 분석 ======== -->
+  <section class="tab" id="tab-stage">
+    <div class="layout">
+      <aside class="side">
+        <section class="card">
+          <h3>대상 댐</h3>
+          <select id="stDam"></select>
+          <div class="kv small" id="stInfo"></div>
+          <p class="hint" style="margin-top:8px">가뭄단계 모의에는 그 댐의 <b>1년치(날짜별) 기준저수량</b>이 필요합니다. 방법은 두 가지입니다. ① 가지고 있는 기준선 CSV를 [자료·방법론] 탭에서 불러오면 바로 분석됩니다. ② MyWater는 그날 값만 공개하므로 플랫폼이 매일 모으며, <b>300일 이상 쌓이면</b> 자동으로 분석됩니다. 그 전에는 현재 단계와 오늘 기준저수량만 볼 수 있습니다.</p>
+          <div class="grid2">
+            <label>상시만수위 (EL.m)<input type="number" step="0.1" id="nwlH"></label>
+            <label>저수위 (EL.m)<input type="number" step="0.1" id="lwlH"></label>
+          </div>
+        </section>
+        <section class="card">
+          <h3>추가 공급량 <span class="badge" id="qTotal"></span></h3>
+          <table class="plants" id="stPlants"></table>
+          <button class="btn small" id="stAddPlant">+ 정수장 추가</button>
+        </section>
+        <section class="card">
+          <h3>가뭄단계별 공급비율 (%)</h3>
+          <div class="factors" id="factors"></div>
+          <div class="preset"><button class="btn small ghost" data-preset="full">전량 공급</button><button class="btn small ghost" data-preset="cut">단계별 감량 예시</button></div>
+          <p class="hint">감량 예시(주의 80·심각 50·비상 0%)는 사용자 가정값입니다.</p>
+        </section>
+        <section class="card">
+          <h3>모의 옵션</h3>
+          <label class="chk"><input type="checkbox" id="optLag"> 실적 발령·해제 시차 반영</label>
+          <label class="chk"><input type="checkbox" id="optCarry"> 연도 간 공급영향 이월</label>
+          <label class="inline">단기변동 제외 (일 이하)<input type="number" min="0" max="10" id="optMin"></label>
+        </section>
+        <section class="card">
+          <h3>판정 기준</h3>
+          <label class="inline">주의이상 증가 ‘가능’ 한계 (일/년)<input type="number" id="cWarnOk"></label>
+          <label class="inline">주의이상 증가 ‘곤란’ 기준 (일/년)<input type="number" id="cWarnBad"></label>
+          <label class="inline">비상공급 증가 허용 (일/년)<input type="number" id="cEm"></label>
+          <label class="inline">정상공급일수 최소 비율 (%)<input type="number" id="cRel"></label>
+        </section>
+      </aside>
+      <div class="main">
+        <div class="verdict" id="verdict"></div>
+        <div class="kpis" id="kpis"></div>
+        <div class="row2">
+          <div class="card"><h3>공급량 민감도 <span class="muted small">— 추가 공급량별 연평균 가뭄일수</span></h3>
+            <div class="chartbox h260"><canvas id="cSens"></canvas></div>
+            <div class="legend"><span><i style="background:#4f8fd6"></i>관심 이상</span><span><i style="background:#e0662b"></i>주의 이상</span><span><i style="background:#8e2f6b"></i>비상공급</span><span><i class="zone ok"></i>가능</span><span><i class="zone mid"></i>조건부</span></div></div>
+          <div class="card"><h3>최대 공급가능량</h3><div id="maxQ"></div></div>
+        </div>
+        <div class="card">
+          <div class="toolbar"><div><div class="seg" id="yearSeg"></div> <div class="seg" id="modeSeg"></div></div><div class="toggles" id="seriesToggles"></div></div>
+          <div class="chartbox h420"><canvas id="cTS"></canvas><div class="tip" id="tipTS"></div></div>
+          <div class="legend" id="stageLegend"></div>
+        </div>
+        <div class="card"><h3>연도별 가뭄단계 일수 <span class="muted small">— 연한 막대: 현재기준, 진한 막대: 공급 시</span></h3><div class="chartbox h260"><canvas id="cYears"></canvas></div></div>
+        <div class="card"><h3>연도별 집계</h3><div class="tablewrap" id="yearTable"></div></div>
+        <div class="row2">
+          <div class="card"><h3>가뭄단계 지표</h3><div class="tablewrap" id="safetyTable"></div></div>
+          <div class="card"><h3>저수위·저수량</h3><div class="tablewrap" id="levelTable"></div></div>
+        </div>
+        <div class="card"><h3>가뭄 발생 구간 (공급 시)</h3><div class="tablewrap" id="epTable"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======== 정수장 공급 검토 ======== -->
+  <section class="tab" id="tab-plant">
+    <div class="card controls">
+      <label class="inline">판정 기준 <select class="critSel"></select></label>
+      <label class="inline">수계 <select id="spRiver"></select></label>
+      <label class="inline">구분 <select id="spKind"><option value="">전체</option><option>다목적댐</option><option>용수댐</option></select></label>
+      <label class="inline">가까운 정수장 반경 (km) <input type="number" id="spR" step="5"></label>
+    </div>
+    <div class="verdict" id="spVerdict"></div>
+    <div class="card"><h3>댐별 여유용량 <span class="muted small">— 기존 공급을 유지하고 더 낼 수 있는 양</span></h3><div class="tablewrap" id="spTable"></div><p class="hint" id="spHint"></p></div>
+    <details class="card plcheck" id="plCheck"><summary><b>특정 정수장에 공급 검토</b> <span class="muted small">— 정수장 하나를 골라 후보 댐·노선·사업비 비교</span></summary>
+    <div class="card controls">
+      <label class="inline">정수장 <select id="plSel"></select></label>
+      <label class="inline">전국 정수장 검색 <input id="plSearch" list="plList" placeholder="이름 입력 (610곳)" autocomplete="off"><datalist id="plList"></datalist></label>
+      <button class="btn small ghost" id="plAddReg" style="margin:0">검토 목록에 추가</button>
+      <label class="inline">공급 요청량 (㎥/일) <input type="number" id="plQ" step="1000"></label>
+      <label class="inline">검토 반경 (km) <input type="number" id="plR" step="10"></label>
+      <label class="inline">판정 기준 <select class="critSel"></select></label>
+      <label class="inline">단가 기준 <select id="plYear"><option value="2026">2026년 1월 단가</option></select></label>
+    </div>
+    <div class="verdict" id="plVerdict"></div>
+    <div class="row2">
+      <div class="card"><h3>후보 수원(댐) 비교</h3><div class="tablewrap" id="plTable"></div><p class="hint" id="plHint"></p></div>
+      <div class="card"><h3>위치도</h3><div id="plMap" class="map"></div></div>
+    </div>
+    <div class="card" id="plDetailCard"><h3 id="plDetailTitle">상세</h3><div id="plDetail"></div></div>
+    <div class="card" id="rtCard">
+      <h3>노선 수리종단 검토 <span class="muted small" id="rtSub"></span></h3>
+      <div class="controls" id="rtCtl">
+        <label class="inline">노선 <select id="rtSel"></select></label>
+        <label class="inline">관경 <select id="rtD"><option value="route">노선 지정값</option><option>700</option><option>800</option><option>900</option><option>1000</option><option>1100</option><option>1200</option></select></label>
+        <label class="inline">취수 수위 (EL.m) <input type="number" id="rtLwl" step="0.1"></label>
+        <label class="inline">정수장 HWL (EL.m) <input type="number" id="rtHwl" step="0.1"></label>
+        <label class="inline">최소 잔류수두 (m) <input type="number" id="rtPmin" step="0.5"></label>
+        <label class="inline">관로 최대 수두 (m) <input type="number" id="rtPmax" step="5"></label>
+        <label class="inline">가압장 양정 상한 (m) <input type="number" id="rtHmax" step="5"></label>
+      </div>
+      <div class="kpis" id="rtKpis" style="margin-top:12px"></div>
+      <div class="chartbox h360"><canvas id="cRt"></canvas></div>
+      <div class="legend"><span><i style="background:#1d4f86"></i>동수경사선(HGL)</span><span><i style="background:#7a6650"></i>지반고(DEM)·관저고(점선)</span><span><i style="background:#1d4f86"></i>P: 가압장</span><span><i style="background:#2f9e6e"></i>V: 감압밸브</span><span><i style="background:#8e2f6b"></i>정수장 HWL</span><span><i style="background:#c9d1da"></i>터널</span></div>
+      <div class="row2" style="margin-top:12px">
+        <div><h4>노선 비교 <span class="muted small">— 같은 유량·수위 조건으로 다시 계산</span></h4><div class="tablewrap" id="rtCmp"></div>
+          <h4>시설 배치</h4><div class="tablewrap" id="rtFac"></div></div>
+        <div><h4>노선도</h4><div id="rtMap" class="map"></div>
+          <h4>보호구역 저촉</h4><div class="tablewrap" id="rtCross"></div></div>
+      </div>
+      <p class="hint" id="rtNote"></p>
+    </div>
+    </details>
+  </section>
+
+  <!-- ======== 정수장·노선 관리 ======== -->
+  <section class="tab" id="tab-registry">
+    <div class="card">
+      <h3>정수장 목록 <span class="muted small">— 수정 내용은 이 브라우저에 저장됩니다</span></h3>
+      <div class="tablewrap" id="regPlants"></div>
+      <p class="hint">시설용량을 비워 두면 MyWater GIS의 정수장 시설용량(흐린 글씨)을 씁니다. 지자체 공식 자료와 다르면 직접 입력하세요.</p>
+      <div class="preset"><button class="btn small" id="regAddPlant">+ 정수장 추가</button><button class="btn small ghost" id="regExport">설정 내보내기(JSON)</button><label class="btn small ghost filebtn">설정 가져오기<input type="file" id="regImport" accept=".json"></label><button class="btn small ghost" id="regReset">기본값 복원</button></div>
+    </div>
+    <div class="card">
+      <h3>노선 조건 (댐 → 정수장) <span class="muted small">— 입력하지 않은 쌍은 직선거리×우회계수, 지형 최고점 미반영</span></h3>
+      <div class="tablewrap" id="regRoutes"></div>
+      <div class="preset"><button class="btn small" id="regAddRoute">+ 노선 추가</button></div>
+    </div>
+    <div class="card">
+      <h3>댐 좌표 <span class="muted small">— 개략값, 확인 후 수정</span></h3>
+      <div class="tablewrap" id="regDams"></div>
+    </div>
+    <div class="card">
+      <h3>사업비 산정 변수</h3>
+      <div class="tablewrap" id="regCost"></div>
+    </div>
+  </section>
+
+  <!-- ======== 운영수위 변경 분석 ======== -->
+  <section class="tab" id="tab-level">
+    <div class="card controls">
+      <label class="inline">댐 <select id="lvDam"></select></label>
+      <label class="inline">기준 운영수위 (EL.m) <input type="number" step="0.1" id="lvH0"></label>
+      <label class="inline">변경 운영수위 (EL.m) <input type="number" step="0.1" id="lvH1"></label>
+      <label class="inline">저수위 (EL.m) <input type="number" step="0.1" id="lvL"></label>
+      <label class="inline">분석기간 <input type="number" id="lvY0" style="min-width:70px"> ~ <input type="number" id="lvY1" style="min-width:70px"></label>
+      <label class="inline">공급 안정성 기준 <select id="lvCrit"></select></label>
+      <label class="inline">일최대/일평균 배수 <input type="number" step="0.01" id="lvPeak" style="min-width:70px"></label>
+    </div>
+    <div class="verdict" id="lvVerdict"></div>
+    <div class="kpis" id="lvKpis"></div>
+    <div class="row2">
+      <div class="card"><h3>운영수위별 공급능력 <span class="muted small">— 기준을 만족하는 최대 일평균 공급량</span></h3>
+        <div class="chartbox h300"><canvas id="cLvCap"></canvas></div>
+        <div class="legend"><span><i style="background:#1d4f86"></i>공급능력(만㎥/일)</span></div></div>
+      <div class="card"><h3>왜 부족해지나</h3><div id="lvWhy" class="small"></div></div>
+    </div>
+    <div class="card">
+      <div class="toolbar"><h3 style="margin:0">기준 공급능력만큼 계속 공급할 때 저수량 <span class="muted small">— 기준 운영수위 vs 변경 운영수위</span></h3><div class="seg-wrap"><span class="muted small" title="변경 운영수위에서 기준 공급능력을 계속 공급할 때 부족량(백만㎥)이 가장 컸던 다섯 해를 자동으로 고릅니다. 해마다 값은 아래 연도별 부족량 표에 있습니다.">부족이 컸던 해</span><div class="seg" id="lvYearSeg"></div></div></div>
+      <div class="chartbox h360"><canvas id="cLvTS"></canvas><div class="tip" id="tipLv"></div></div>
+      <div class="legend"><span><i style="background:#1d4f86"></i>기준 운영수위</span><span><i style="background:#e0662b"></i>변경 운영수위</span><span><i style="background:#111"></i>저수위·운영수위 저수량</span></div>
+    </div>
+    <div class="row2">
+      <div class="card"><h3>연도별 부족량 <span class="muted small">— 변경 운영수위에서 기준 공급능력을 계속 공급할 때</span></h3><div class="tablewrap" id="lvYears"></div></div>
+      <div class="card"><h3>기존 검토 결과와 비교</h3><div class="tablewrap" id="lvRef"></div></div>
+    </div>
+    <div class="card" id="lvSysCard" style="display:none"><h3>연계 계통 비교 <span class="muted small">— 상류·연결 댐과 함께 볼 때 운영수위 변경의 영향</span></h3><div id="lvSys"></div></div>
+  </section>
+
+  <!-- ======== 자료·방법론 ======== -->
+  <section class="tab" id="tab-data">
+    <div class="row2">
+      <div class="card"><h3>자료 현황</h3><div id="srcInfo" class="small"></div></div>
+      <div class="card">
+        <h3>자료 갱신 (MyWater)</h3>
+        <p class="small">명령 프롬프트에서 플랫폼 폴더로 이동 후 실행합니다. 처음엔 약 10분, 이후엔 올해·작년 자료만 다시 받습니다.</p>
+        <pre class="code">자료수집_전체.bat 더블클릭
+  = python tools/collect_mywater.py   (댐 일자료·제원·기준저수량)
+  + python tools/collect_curves.py    (수위-저수용량 곡선식)
+  + python tools/collect_gis.py       (댐·정수장 위치, 시설용량)</pre>
+        <h3 class="mt">가뭄단계 기준선 불러오기 (CSV)</h3>
+        <label>대상 댐<select id="upDam"></select></label>
+        <label>기준선 CSV <input type="file" id="upBase" accept=".csv,.txt"></label>
+        <button class="btn small" id="upGo">불러오기</button> <button class="btn small ghost" id="tplBase">양식 받기</button>
+        <p class="hint" id="upMsg">형식: <code>월일,관심,주의,심각,가동기준,정상환원</code> (저수량 백만㎥, 1.1~12.31). 용수공급 조정기준의 댐별 기준저수량을 넣으면 MyWater 일자료로 가뭄단계 분석이 가능합니다.</p>
+      </div>
+    </div>
+    <div class="card"><h3>엔진 검증</h3><div class="tablewrap" id="valTable"></div></div>
+    <div class="card method">
+      <h3>평가 방법 <a class="btn small ghost" style="margin:0" href="guide.html" target="_blank" rel="noopener">용어·개념 안내 열기</a></h3>
+      <ol>
+        <li><b>이수안전도(물수지 모의)</b> : S(t+1)=S(t)+(유입−공급)·Δt. 상한은 상시만수위(다목적댐 홍수기 6.21~9.20은 홍수기제한수위) 저수량으로 두고 초과분은 무효방류로 봅니다. 하한은 저수위 저수량이며, 이보다 낮아지면 그만큼 부족으로 계산합니다. 증발은 반영하지 않습니다(기본계획 장기모의와 동일). 지표는 기간신뢰도(일·순·월·수문년), 양적신뢰도, 회복도, 최대 부족기간, 취약도입니다.</li>
+        <li><b>추가 공급 가능량</b> : 판정 기준(기본: 기본계획 장기모의와 같은 ‘분석기간 중 부족 발생 0회’)을 만족하는 최대 추가 공급량을 이분 탐색으로 구합니다. 음수이면 기존 계획량도 기준을 충족하지 못한다는 뜻입니다.</li>
+        <li><b>자료</b> : MyWater 일자료(유입량·저수량·수위)를 쓰고, 기존 공급량은 MyWater 제원의 연간 용수공급용량을 균등 배분해 적용합니다. 저수위·운영수위의 저수량은 MyWater 공식 수위-저수용량 곡선식(최신 적용일자)으로 환산합니다. 곡선식이 없으면 관측 수위·저수량 쌍으로 만든 곡선을 씁니다. 장기모의 반순자료(1977~2018)는 6개 댐에서 선택할 수 있습니다.</li>
+        <li><b>가뭄단계</b> : 「용수댐의 대응 단계별 용수공급 조정기준」의 일별 기준저수량을 씁니다. 모의 저수량 S′=S−ΣQ와 기준을 비교해 단계에 진입하고, 정상환원 기준을 넘으면 해제합니다. 추가 공급으로 줄어든 저수량(ΣQ)은 기본값에서 해마다 1월 1일에 0으로 되돌립니다(매년 장마철에 다시 찬다고 가정). '연도 간 공급영향 이월'을 켜면 해를 넘겨 누적하되, 실제 저수량이 상시만수위 저수량의 95%를 넘는 날(월류에 가까운 때)에 0으로 되돌립니다. 앞의 것은 영향의 하한, 뒤의 것은 상한에 가깝습니다. 다른 댐은 기준선 CSV를 불러오면 분석할 수 있습니다.</li>
+        <li><b>운영수위 변경</b> : 운영 상한 수위를 낮췄을 때, 같은 판정 기준에서 공급능력이 얼마나 줄어드는지 두 번의 물수지 모의로 비교합니다. 일최대 부족량은 일평균 부족량에 첨두 배수(부하율의 역수)를 곱해 구합니다.</li>
+        <li><b>정수장 공급</b> : 후보 댐별로 다음을 함께 비교합니다. ① 수량: 추가 공급 가능량과 요청량, ② 가뭄단계 영향(기준선이 있는 댐만), ③ 개략 수리: 관경(유속 1.5m/s 이하), 양정(Hazen-Williams C=110), ④ 개략 사업비: 2026년 단가, 예타 방식의 부대경비 10.4%와 예비비 10%, ⑤ 원/㎥: 사업비 연등가(4.5%, 30년)에 전력비를 더한 값입니다.</li>
+        <li><b>노선 수리종단</b> : CAD 노선이나 자동 탐색 노선(60m 격자 최소비용 경로, OSM 도로·보호구역 규칙 반영)을 20~60m 간격으로 나눠 DEM 지반고를 읽고, 동수경사선을 그려 가압장·감압밸브를 자동 배치합니다. 노선이 있는 쌍은 후보 순위표도 이 결과를 씁니다.</li>
+      </ol>
+      <p class="hint">한계 : 수리종단 노선이 없는 쌍은 노선 연장을 직선거리×우회계수로 정하고 지형 최고점은 입력할 때만 반영하므로, 산악 통과 노선의 양정과 사업비가 과소 산정될 수 있습니다. 수리종단 지반고는 표면고(DSM)라 ±5~10m 개략값이고, 공개판에는 보호구역 자료가 없어 저촉은 따로 확인해야 합니다. 하류 하천의 수리권, 다른 댐의 연계운영, 수질과 인허가는 별도 검토가 필요합니다.</p>
+    </div>
+  </section>
+</main>
+
+<div id="printReport" class="print-only"></div>
+
+<script src="data/data.js"></script>
+<script src="data/d05.js"></script>
+<script src="data/mywater.js" onerror="window.MYWATER=null"></script>
+<script src="data/gis.js" onerror="window.GIS=null"></script>
+<script src="data/curves.js" onerror="window.HVCURVES=null"></script>
+<script src="data/routes.js" onerror="window.ROUTES=[]"></script>
+<script src="data/constraints.js" onerror="window.CONSTRAINTS=[]"></script>
+
+<script src="data/registry.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/wb.js"></script>
+<script src="js/cost.js"></script>
+<script src="js/hydro.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
