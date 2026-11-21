@@ -14,12 +14,12 @@
 
   /* ================= 상태 ================= */
   var CRITS = {
-    y95: { label: '20년 빈도 가뭄까지 (기본 · 연 신뢰도 95%)', unit: 'year', target: 0.95 },
+    y95: { label: '20년 빈도 가뭄까지 (추천 · 연 신뢰도 95%)', unit: 'year', target: 0.95 },
     y0: { label: '관측기간 최대 가뭄까지 (보수적 · 부족 0회)', unit: 'year', target: 1 },
-    
+    y90: { label: '10년 빈도 가뭄까지 (완화 · 연 신뢰도 90%)', unit: 'year', target: 0.90 }
   };
-  // 판정 기준은 두 가지만 고름. 일·양적신뢰도 등은 상세 표의 참고 지표로만 보여 줌
-  var CRIT_SEL = ['y95', 'y0'];
+  // 판정 기준은 추천·보수적·완화 세 가지만 고름. 일·양적신뢰도 등은 상세 표의 참고 지표로만 보여 줌
+  var CRIT_SEL = ['y95', 'y0', 'y90'];
   var LV_CRITS = CRIT_SEL;
   var DEF = {
     tab: 'overview', crit: 'y95', src: 'mywater',
@@ -233,7 +233,9 @@
     var minLa = Math.min.apply(null, la), maxLa = Math.max.apply(null, la), minLo = Math.min.apply(null, lo), maxLo = Math.max.apply(null, lo);
     var cLa = (minLa + maxLa) / 2, cLo = (minLo + maxLo) / 2, k = Math.cos(cLa * Math.PI / 180);
     var spLa = Math.max(0.5, (maxLa - minLa) * 1.18 + 0.14), spLo = Math.max(0.6, (maxLo - minLo) * 1.18 + 0.2);
-    var Wd = 600, ratio = Math.min(1.25, Math.max(0.62, spLa / (spLo * k))), Hd = Math.round(Wd * ratio);
+    var rr = (o.ratio || [0.62, 1.25]).slice(), cw = el.clientWidth;
+    if (o.maxH && cw > 0) { rr[1] = Math.max(0.35, Math.min(rr[1], o.maxH / cw)); rr[0] = Math.min(rr[0], rr[1]); }   // 화면에서 지도 높이가 maxH(px)를 넘지 않게 범위를 옆으로 넓힘
+    var Wd = 600, ratio = Math.min(rr[1], Math.max(rr[0], spLa / (spLo * k))), Hd = Math.round(Wd * ratio);   // 정수장 탭은 납작하게(표 옆에서 길게 늘어지지 않게)
     if (spLa / (spLo * k) > ratio) spLo = spLa / (ratio * k); else spLa = spLo * k * ratio;
     minLa = cLa - spLa / 2; maxLa = cLa + spLa / 2; minLo = cLo - spLo / 2; maxLo = cLo + spLo / 2;
     var X = function (lon) { return (lon - minLo) / (maxLo - minLo) * Wd; }, Y = function (lat) { return (maxLa - lat) / (maxLa - minLa) * Hd; };
@@ -348,7 +350,7 @@
       ['여유량 합계', man(sumAdd) + ' 만㎥/일', '여유 댐 합산(연계 불고려)']
     ].map(function (k) { return '<div class="kpi"><div class="k">' + k[0] + '</div><div class="v">' + k[1] + '</div><div class="d muted">' + k[2] + '</div></div>'; }).join('');
     $('ovHint').textContent = S.src === 'd05' ? '장기모의 반순자료는 6개 댐만 있으며 나머지는 MyWater 일자료로 계산합니다.' : '';
-    drawMap($('ovMap'), { dams: shown, selDam: S.dam, onDam: function (n) { S.dam = n; S.tab = 'dam'; save(); showTab(); } });
+    drawMap($('ovMap'), { maxH: 480, dams: shown, selDam: S.dam, onDam: function (n) { S.dam = n; S.tab = 'dam'; save(); showTab(); } });
     // 계획 공급량 대비 비율(%)로 그림: 큰 댐의 절대량이 화면을 지배하지 않게. 음수는 '단독 모의로는 추가 여유 없음'이라 중립색
     var items = rows.filter(function (r) { return r.ev.addCmd != null && !r.ev.external; }).map(function (r) {
       var plan = r.ev.m.annualMcm * 1e6 / 365, a = r.ev.addCmd;
@@ -1051,7 +1053,7 @@
     $('plTable').innerHTML = PR.cands.length ? h : '<p class="hint">후보가 없습니다. 검토 반경을 넓히거나 [정수장·노선 관리]에서 좌표·노선을 입력하세요.</p>';
     $('plHint').innerHTML = '* 자동 노선 = 직선거리 × 우회계수(' + (Object.assign({}, COST.DEF, costParams()).detour) + '), 지형 최고점 미반영으로 양정·사업비가 과소일 수 있습니다. ‘수리종단’ 표시는 아래 노선 수리종단 검토(DEM 지반고·가압장 자동 배치) 결과이며, 그 쌍은 이 값이 개략 산정보다 우선합니다. 자동 노선(*)의 양정은 ‘시종점 고저차 + 동수경사 × 연장’만 반영해, 중간 산지를 넘는 노선이면 실제보다 작습니다. 용지보상비는 예타 방식대로 관로 전 연장(터널 제외)에 m당 단가를 곱합니다. 도로 아래 구간도 따로 빼지 않으므로 보수적인 값이며, 도로구간 비율은 공사비 단가에만 반영됩니다. 굵은 사업비는 보고서 값(2026년 단가)입니다. 단위원가 = (총사업비 연등가 4.5%·30년 + 전력비) ÷ 연간 공급량.';
     qsa('#plTable tr.click').forEach(function (tr) { tr.onclick = function () { plSelDam = tr.dataset.dam; delete rtParams().sel[PR.p.id]; save(); renderPlant(); }; });   // 댐을 바꾸면 노선 검토도 그 댐의 최적 노선으로
-    drawMap($('plMap'), { dams: PR.cands.length ? PR.cands.map(function (c) { return c.dam; }) : null, extraPlants: PR.p.fromGis ? [PR.p] : [], selPlant: PR.p.id, selDam: plSelDam || (top && top.dam.name), links: PR.cands.map(function (c) { return { dam: c.dam.name, plant: PR.p, level: c.level }; }),
+    drawMap($('plMap'), { ratio: [0.45, 0.55], maxH: 320, dams: PR.cands.length ? PR.cands.map(function (c) { return c.dam; }) : null, extraPlants: PR.p.fromGis ? [PR.p] : [], selPlant: PR.p.id, selDam: plSelDam || (top && top.dam.name), links: PR.cands.map(function (c) { return { dam: c.dam.name, plant: PR.p, level: c.level }; }),
       onDam: function (n) { plSelDam = n; renderPlant(); }, onPlant: function (id) { S.plant = id; plSelDam = null; save(); renderPlant(); } });
     renderPlantDetail();
     renderRoute();

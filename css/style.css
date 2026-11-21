@@ -97,6 +97,7 @@ label.chk { display: flex; align-items: center; gap: 6px; color: var(--ink); fon
 
 .row2 { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; }
 .row2 > .card { margin-bottom: 14px; }
+.row2.wide { grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr); }   /* 정수장 탭: 표를 넓게, 지도는 좁고 납작하게 */
 
 /* charts */
 .chartbox { position: relative; width: 100%; }
@@ -143,7 +144,7 @@ table.t tr.sum td { font-weight: 700; background: #f9fafb; }
   .layout { grid-template-columns: 1fr; }
   .controls { flex-direction: column; align-items: stretch; }
   .side { position: static; max-height: none; }
-  .row2 { grid-template-columns: 1fr; }
+  .row2, .row2.wide { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
   .layout { padding: 10px; }
