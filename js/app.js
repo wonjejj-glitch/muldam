@@ -14,15 +14,15 @@
 
   /* ================= 상태 ================= */
   var CRITS = {
-    y0: { label: '관측기간 최대 가뭄까지 (분석기간 부족 0회)', unit: 'year', target: 1 },
-    y1: { label: '관측기간 두 번째 가뭄까지 (부족 연수 1회 이하)', unit: 'year', target: 0, maxDefYears: 1 },
-    y95: { label: '20년 빈도 가뭄까지 (연 신뢰도 95%)', unit: 'year', target: 0.95 },
-    y90: { label: '10년 빈도 가뭄까지 (연 신뢰도 90%)', unit: 'year', target: 0.90 },
-    s95: { label: '일(반순) 기간신뢰도 95%', unit: 'step', target: 0.95 },
-    q99: { label: '양적신뢰도 99%', unit: 'qty', target: 0.99 }
+    y95: { label: '20년 빈도 가뭄까지 (기본 · 연 신뢰도 95%)', unit: 'year', target: 0.95 },
+    y0: { label: '관측기간 최대 가뭄까지 (보수적 · 부족 0회)', unit: 'year', target: 1 },
+    
   };
+  // 판정 기준은 두 가지만 고름. 일·양적신뢰도 등은 상세 표의 참고 지표로만 보여 줌
+  var CRIT_SEL = ['y95', 'y0'];
+  var LV_CRITS = CRIT_SEL;
   var DEF = {
-    tab: 'overview', crit: 'y0', src: 'mywater',
+    tab: 'overview', crit: 'y95', src: 'mywater',
     dam: '소양강댐', damDemand: {}, damAdd: 10000,
     st: { dam: '소양강댐', plants: [{ name: '정수장 1', q: 10000, on: true }], factors: [100, 100, 100, 100, 100], lag: true, carry: false, minDays: 1,
       crit: { warnOk: 10, warnBad: 30, maxEmergency: 0, minRel: 50 }, spec: {} },
@@ -31,10 +31,12 @@
   };
   var S = clone(DEF);
   try { var sv = JSON.parse(localStorage.getItem(STORE) || 'null'); if (sv) { S = Object.assign(clone(DEF), sv); S.st = Object.assign(clone(DEF.st), sv.st || {}); S.reg = Object.assign(clone(DEF.reg), sv.reg || {}); } } catch (e) { /* 저장소 없음 */ }
+  if (CRIT_SEL.indexOf(S.crit) < 0 || !S.crit2) { S.crit = 'y95'; S.crit2 = 1; }   // 기준을 두 가지로 줄인 뒤 한 번은 기본(20년 빈도)으로
+  if (S.lv && LV_CRITS.indexOf(S.lv.crit) < 0) S.lv.crit = 'y95';
   var BASES = {};
   try { BASES = JSON.parse(localStorage.getItem(STORE_BASE) || '{}') || {}; } catch (e) { BASES = {}; }
   function save() { try { localStorage.setItem(STORE, JSON.stringify(S)); } catch (e) { /* 무시 */ } }
-  function crit() { return CRITS[S.crit] || CRITS.y0; }
+  function crit() { return CRITS[S.crit] || CRITS.y95; }
 
   /* ================= 등록부 ================= */
   function plants() { return S.reg.plants || REG.plants; }
@@ -179,7 +181,7 @@
   /* ================= 공통 컨트롤 ================= */
   function initControls() {
     qsa('.critSel').forEach(function (sel) {
-      sel.innerHTML = Object.keys(CRITS).map(function (k) { return '<option value="' + k + '">' + CRITS[k].label + '</option>'; }).join('');
+      sel.innerHTML = CRIT_SEL.map(function (k) { return '<option value="' + k + '">' + CRITS[k].label + '</option>'; }).join('');
       sel.value = S.crit;
       sel.onchange = function () { S.crit = this.value; qsa('.critSel').forEach(function (x) { x.value = S.crit; }); save(); renderTab(); };
     });
@@ -395,19 +397,20 @@
     var noRoom = !ok && !ev.external && q <= 0;
     $('damVerdict').className = 'verdict' + (noRoom ? '' : ' l' + lvl);
     $('damVerdict').innerHTML = '<div class="stamp">' + (ev.external ? '평가 부적합' : noRoom ? '여유 없음' : !ok ? '추가 공급 곤란' : ev.unknown ? '조건부 가능' : '공급 가능') + '</div><div class="title">' + esc(dam.name) + ' · 기존 ' + man(m.annualMcm * 1e6 / 365) + '만㎥/일 + 추가 ' + man(q) + '만㎥/일</div>' +
-      '<ul><li>판정 기준: ' + crit().label + ' → 추가 후 부족 ' + mtq.year.def + '/' + mtq.year.n + '년, 연단위 신뢰도 ' + pct(mtq.year.rel) + ', 일 신뢰도 ' + pct(mtq.stepRel, 2) + '</li>' +
+      '<ul><li>판정 기준: ' + crit().label + ' → 추가 후 부족 ' + mtq.year.def + '/' + mtq.year.n + '년, 연단위 신뢰도 ' + pct(mtq.year.rel) + '</li>' +
       '<li>기준을 만족하는 최대 추가 공급량: <b>' + (ev.addCmd == null ? '산정 불가' : man(ev.addCmd) + '만㎥/일') + '</b>' + (ev.addCmd != null && ev.addCmd < 0 ? ' (댐 단독·매일 같은 양이라는 단순 조건에서는 계획량 위에 더 낼 여유가 없음. 계획량의 적정성 판단 자료는 아님 — 종합 현황 설명 참고)' : '') + '</li>' +
       (ev.unknown ? '<li><b>MyWater 제원의 연간 용수공급용량이 0입니다' + (LINKED[dam.name] ? '(' + LINKED[dam.name] + '와 연계 가뭄관리 댐)' : '') + '. 실제 기존 공급량을 위 칸에 입력해야 정확한 여유량이 나옵니다.</b></li>' : '') +
       (ev.external ? (ev.transfer ? '<li>MyWater 유입량이 유역(' + fmt(dam.basic.basin, 1) + '㎢)에서 나올 수 있는 양보다 훨씬 큽니다(연 ' + fmt(ev.runoffMm, 0) + 'mm, 국내 하천은 대개 500~1,000mm). 다른 하천에서 끌어온 물(도수)이 유입량에 섞여 있어, 댐 혼자의 여유량으로 볼 수 없습니다.</li>' : '<li>기존 공급량(' + fmt(m.dCms, 2) + '㎥/s)이 평균 유입량(' + fmt(m.meanInflow, 2) + '㎥/s)보다 커서 외부 도수에 의존하는 댐입니다.</li>') : '') +
       (hasStage(dam.name) ? '<li>가뭄단계(조정기준) 분석 가능 → [가뭄단계 분석] 탭</li>' : '') + '</ul>';
     var o0 = ev.mt0;
+    // 카드는 판단에 바로 쓰는 세 가지만: 몇 번·얼마나 오래 모자랐나, 얼마나 바닥까지 내려갔나 (나머지는 아래 신뢰도 지표 표)
+    var du = m.src === 'd05' ? '반순' : '일', lwl = dam.basic.lwl;
+    var minH = m.hv && m.hv.hOfV ? m.hv.hOfV(mtq.minS) : null, atLwl = minH != null && lwl != null && minH <= lwl + 0.05;
     var k = [
-      ['연 부족 (기존 → 추가)', o0.year.def + ' → ' + mtq.year.def + '회', '/ ' + o0.year.n + '년'],
-      ['일(반순) 기간신뢰도', pct(mtq.stepRel, 2), '기존 ' + pct(o0.stepRel, 2)],
-      ['양적신뢰도', pct(mtq.qRel, 2), '기존 ' + pct(o0.qRel, 2)],
-      ['최대 부족기간', mtq.maxDefDur + (m.src === 'd05' ? '반순' : '일'), '기존 ' + o0.maxDefDur],
-      ['최저 저수량', fmt(mtq.minS, 1) + ' 백만㎥', mtq.minDate],
-      ['최저 수위(모의)', m.hv ? 'EL.' + fmt(m.hv.hOfV ? m.hv.hOfV(mtq.minS) : null, 1) : '-', '저수위 EL.' + (dam.basic.lwl != null ? dam.basic.lwl : '-')]
+      ['부족한 해 (기존 → 추가)', o0.year.def + ' → ' + mtq.year.def + '번', '분석 ' + o0.year.n + '년 중'],
+      ['가장 길게 모자란 기간', mtq.maxDefDur ? mtq.maxDefDur + du : '없음', '기존 ' + (o0.maxDefDur ? o0.maxDefDur + du : '없음')],
+      [minH != null ? '최저 수위 (모의)' : '최저 저수량 (모의)', minH != null ? 'EL.' + fmt(minH, 1) + (atLwl ? ' <span class="small muted">저수위 도달</span>' : '') : fmt(mtq.minS, 1) + ' 백만㎥',
+        (minH != null ? fmt(mtq.minS, 1) + '백만㎥ · ' : '') + mtq.minDate + (lwl != null && !atLwl ? ' · 저수위 EL.' + lwl : '')]
     ];
     $('damKpis').innerHTML = k.map(function (x) { return '<div class="kpi"><div class="k">' + x[0] + '</div><div class="v">' + x[1] + '</div><div class="d muted">' + x[2] + '</div></div>'; }).join('');
     // 시계열
@@ -654,7 +657,7 @@
   function lvCompute(dam, p, critKey) {
     var key = [dam.name, p.h0, p.h1, p.l, p.y0, p.y1, critKey].join('|');
     if (LVC[key]) return LVC[key];
-    var crit = CRITS[critKey] || CRITS.y90;
+    var crit = CRITS[critKey] || CRITS.y95;
     var m0 = lvModel(dam, p.h0, p.l, p.y0, p.y1), m1 = lvModel(dam, p.h1, p.l, p.y0, p.y1);
     var q0 = lvCap(m0, crit), q1 = lvCap(m1, crit);
     // 기준 공급능력(q0)을 그대로 공급할 때 두 운영수위의 거동
@@ -740,7 +743,7 @@
   }
   function renderLvSys(dam, p, critKey) {
     var Ls = linksOf(dam.name); $('lvSysCard').style.display = Ls.length ? '' : 'none'; if (!Ls.length) return;
-    var crit = CRITS[critKey] || CRITS.y90;
+    var crit = CRITS[critKey] || CRITS.y95;
     $('lvSys').innerHTML = Ls.map(function (L) {
       var ser = sysSeries(L, p.y0, p.y1);
       if (!ser) return '<p class="hint">' + esc(L.down) + '·' + esc(L.up) + ': 두 댐의 자료가 함께 있는 기간이 짧아 계산하지 않았습니다.</p>';
@@ -765,11 +768,11 @@
 
   var lvBound = false;
   function renderLevel() {
-    var lv = S.lv || (S.lv = { dam: '소양강댐', crit: 'y90', peak: 1 / 0.7 });
+    var lv = S.lv || (S.lv = { dam: '소양강댐', crit: 'y95', peak: 1 / 0.7 });
     if (!lvBound) {
       lvBound = true;
       $('lvDam').innerHTML = damOptions(function (d) { return !!d.mw; });
-      $('lvCrit').innerHTML = Object.keys(CRITS).map(function (k) { return '<option value="' + k + '">' + CRITS[k].label + '</option>'; }).join('');
+      $('lvCrit').innerHTML = LV_CRITS.map(function (k) { return '<option value="' + k + '">' + CRITS[k].label + '</option>'; }).join('');
       $('lvDam').onchange = function () { lv.dam = this.value; lv.p = null; save(); renderLevel(); };
       $('lvCrit').onchange = function () { lv.crit = this.value; save(); renderLevel(); };
       [['lvH0', 'h0'], ['lvH1', 'h1'], ['lvL', 'l'], ['lvY0', 'y0'], ['lvY1', 'y1']].forEach(function (x) {
@@ -786,7 +789,7 @@
     var V0 = hv.vOfH(p.h0), V1 = hv.vOfH(p.h1), VL = hv.vOfH(p.l), u0 = V0 - VL, u1 = V1 - VL;
     var dq = R.q0 - R.q1, dqMax = dq * lv.peak;
     $('lvVerdict').className = 'verdict ' + (dq > 0.5 * 10000 ? 'l2' : dq > 0 ? 'l1' : 'l0');
-    $('lvVerdict').innerHTML = '<div class="stamp">부족 ' + man(Math.max(0, dq)) + '만㎥/일</div><div class="title">' + esc(dam.name) + ' 운영수위 EL.' + p.h0 + ' → EL.' + p.h1 + 'm · ' + p.y0 + '~' + p.y1 + ' · ' + esc((CRITS[lv.crit] || CRITS.y90).label) + '</div><ul>' +
+    $('lvVerdict').innerHTML = '<div class="stamp">부족 ' + man(Math.max(0, dq)) + '만㎥/일</div><div class="title">' + esc(dam.name) + ' 운영수위 EL.' + p.h0 + ' → EL.' + p.h1 + 'm · ' + p.y0 + '~' + p.y1 + ' · ' + esc((CRITS[lv.crit] || CRITS.y95).label) + '</div><ul>' +
       '<li>공급능력 ' + man(R.q0) + '만 → ' + man(R.q1) + '만㎥/일 (일평균 부족 <b>' + man(dq) + '만</b>, 일최대 부족 <b>' + man(dqMax) + '만</b> = 일평균 × ' + fmt(lv.peak, 2) + ')</li>' +
       '<li>이용 가능 저수량(운영수위 − 저수위) ' + fmt(u0, 2) + ' → ' + fmt(u1, 2) + ' 백만㎥ (' + pct(1 - u1 / u0, 0) + ' 감소)</li></ul>';
     $('lvKpis').innerHTML = [
@@ -833,7 +836,7 @@
     var ref = (REG.levelRefs || {})[dam.name];
     $('lvRef').innerHTML = ref ? '<table class="t"><tr><th>구분</th><th>분석기간</th><th>운영수위</th><th>공급능력</th><th>공급안정성</th></tr>' +
       ref.cases.map(function (c) { return '<tr><td class="l">' + esc(c.label) + '</td><td>' + esc(c.period) + '</td><td>EL.' + c.h + '</td><td>' + fmt(c.q / 10000, 1) + '만</td><td>' + esc(c.rel) + '</td></tr>'; }).join('') +
-      '<tr class="sum"><td class="l">본 플랫폼 (MyWater 실측유입)</td><td>' + p.y0 + '~' + p.y1 + '</td><td>EL.' + p.h0 + ' / ' + p.h1 + '</td><td>' + man(R.q0) + ' / ' + man(R.q1) + '만</td><td>' + esc((CRITS[lv.crit] || CRITS.y90).label) + '</td></tr></table>' +
+      '<tr class="sum"><td class="l">본 플랫폼 (MyWater 실측유입)</td><td>' + p.y0 + '~' + p.y1 + '</td><td>EL.' + p.h0 + ' / ' + p.h1 + '</td><td>' + man(R.q0) + ' / ' + man(R.q1) + '만</td><td>' + esc((CRITS[lv.crit] || CRITS.y95).label) + '</td></tr></table>' +
       '<p class="hint">' + esc(ref.note) + '</p>'
       : '<p class="hint">이 댐에 등록된 기존 검토 결과가 없습니다.</p>';
     renderLvSys(dam, p, lv.crit);
@@ -1378,10 +1381,10 @@
     var h = location.hash.slice(1); if (h.indexOf('=') < 0) return;
     var q = {}; h.split('&').forEach(function (kv) { var i = kv.indexOf('='); if (i > 0) q[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1)); });
     if (q.tab && $('tab-' + q.tab)) S.tab = q.tab;
-    if (q.dam && damByName(q.dam)) { S.dam = q.dam; S.lv = Object.assign(S.lv || { crit: 'y90', peak: 1 / 0.7 }, { dam: q.dam, p: null }); S.st.dam = q.dam; }
+    if (q.dam && damByName(q.dam)) { S.dam = q.dam; S.lv = Object.assign(S.lv || { crit: 'y95', peak: 1 / 0.7 }, { dam: q.dam, p: null }); S.st.dam = q.dam; }
     if (q.plant && plantById(q.plant)) { S.plant = q.plant; plSelDam = null; }
     if (q.open) S.plOpen = q.open === '1';
-    if (q.crit && CRITS[q.crit]) S.crit = q.crit;
+    if (q.crit && CRIT_SEL.indexOf(q.crit) >= 0) S.crit = q.crit;
   })();
   initControls();
   showTab();
