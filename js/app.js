@@ -19,7 +19,7 @@
     y90: { label: '10년 빈도 가뭄까지 (완화 · 연 신뢰도 90%)', unit: 'year', target: 0.90 }
   };
   // 판정 기준은 추천·보수적·완화 세 가지만 고름. 일·양적신뢰도 등은 상세 표의 참고 지표로만 보여 줌
-  var CRIT_SEL = ['y95', 'y0', 'y90'];
+  var CRIT_SEL = ['y0', 'y95', 'y90'];   // 엄격 → 완화 순서
   var LV_CRITS = CRIT_SEL;
   var DEF = {
     tab: 'overview', crit: 'y95', src: 'mywater',
@@ -40,7 +40,6 @@
 
   /* ================= 등록부 ================= */
   function plants() { return S.reg.plants || REG.plants; }
-  function routes() { return S.reg.routes || REG.routes; }
   function gisDam(name) { var d = damByName(name); var g = d && d.code && GIS && GIS.dams ? GIS.dams[d.code] : null; return g ? [g.lat, g.lon] : null; }
   function coordOf(name) { return S.reg.damCoords[name] || gisDam(name) || REG.damCoords[name] || null; }
   function coordSrc(name) { return S.reg.damCoords[name] ? '사용자' : gisDam(name) ? 'MyWater GIS' : REG.damCoords[name] ? '개략' : '-'; }
@@ -57,6 +56,7 @@
   }
   function gisCapOf(p) { if (!GIS || !p.gis) return null; var g = GIS.plants.filter(function (x) { return x.name === p.gis; })[0]; return g ? g.capacity : null; }
   function costParams() { return Object.assign({}, S.reg.cost); }
+  function hwlOf(p) { var v = S.plantHwl && S.plantHwl[p.id]; return v != null ? v : p.hwl; }
   function plantById(id) { return plants().filter(function (p) { return p.id === id; })[0] || gisPlants().filter(function (p) { return p.id === id; })[0]; }
 
   /* ================= 댐 목록 ================= */
@@ -208,11 +208,9 @@
     try {
       if (S.tab === 'overview') renderOverview();
       if (S.tab === 'dam') renderDam();
-      if (S.tab === 'stage') renderStage();
-      if (S.tab === 'plant') { renderSurplus(); if ($('plCheck').open) renderPlant(); }
+      if (S.tab === 'stage') { renderStage(); renderUpload(); }
+      if (S.tab === 'plant') { renderSurplus(); if ($('plCheck').open) { renderPlant(); renderCost(); } }
       if (S.tab === 'level') renderLevel();
-      if (S.tab === 'registry') renderRegistry();
-      if (S.tab === 'data') renderData();
     } catch (err) { console.error(err); }
   }
 
@@ -556,7 +554,7 @@
       $('verdict').innerHTML = '<div class="title">' + esc(S.st.dam || '') + ': 가뭄단계 기준선이 없어 공급 영향을 모의할 수 없습니다.</div><ul>' +
         (cs ? '<li>현재 대응단계: ' + stageCell(d0) + (sn && sn.g > 0 ? ' · 오늘 기준저수량 관심/주의/심각 ' + thrTxt(sn.g) + ' / ' + thrTxt(sn.j) + ' / ' + thrTxt(sn.ss) + ' 백만㎥' : '') + '</li>' : '') +
         '<li>모의에는 1년치(날짜별) 기준저수량이 필요합니다. MyWater는 그날 값만 공개해서, 플랫폼이 매일 모아 300일이 쌓이면 자동으로 분석합니다(이 댐은 지금 ' + nd + '일).</li>' +
-        '<li>1년치 기준선 표가 있으면 [자료·방법론] 탭에서 CSV로 불러오면 바로 분석됩니다.</li>' +
+        '<li>1년치 기준선 표가 있으면 왼쪽 ‘기준선 불러오기’에서 CSV로 넣으면 바로 분석됩니다.</li>' +
         (sn && !(sn.g > 0) ? '<li class="muted">이 댐은 MyWater에 기준저수량이 정해져 있지 않습니다' + (LINKED[d0.name] ? '(연계 댐 ' + esc(LINKED[d0.name]) + '와 함께 관리)' : '') + '.</li>' : '') + '</ul>';
       ['kpis', 'maxQ', 'stInfo'].forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
       return;
@@ -917,7 +915,7 @@
       $('spRiver').onchange = function () { S.spRiver = this.value; save(); renderSurplus(); };
       $('spKind').onchange = function () { S.spKind = this.value; save(); renderSurplus(); };
       $('spR').onchange = function () { S.spR = +this.value || 30; save(); renderSurplus(); };
-      $('plCheck').addEventListener('toggle', function () { S.plOpen = this.open; save(); if (this.open) renderPlant(); });
+      $('plCheck').addEventListener('toggle', function () { S.plOpen = this.open; save(); if (this.open) { renderPlant(); renderCost(); } });
     }
     var R = S.spR || 30;
     $('spRiver').value = S.spRiver || ''; $('spKind').value = S.spKind || ''; $('spR').value = R;
@@ -954,8 +952,6 @@
   /* ================= 정수장 공급 검토 ================= */
   var PR = null, plSelDam = null;
   function routeOptions(dam, plant) {
-    var list = routes().filter(function (r) { return r.dam === dam.name && r.plant === plant.id; });
-    if (list.length) return list.map(function (r) { return Object.assign({ manual: true }, r); });
     var a = coordOf(dam.name);
     if (!a || plant.lat == null) return [];
     var cp = Object.assign({}, COST.DEF, costParams());
@@ -981,7 +977,7 @@
       // 수리종단 노선(data/routes)이 있으면 그 설계 결과를 쓰고, 없으면 연장·최고점 기반 개략 산정
       var prof = window.Hydro ? routesFor(dam.name, p) : [];
       var est = prof.length ? prof.map(function (r) { return profEst(rtDesign(r, Q, dam, p, rtParams(), dam.name + '|' + p.id)); }) : ropts.map(function (r) {
-        var e = COST.estimate(Q, { lengthKm: r.lengthKm, tunnelKm: r.tunnelKm || 0, zStart: dam.basic.lwl != null ? dam.basic.lwl : 0, zEnd: p.hwl != null ? p.hwl : 50, zHigh: r.zHigh, lHighKm: r.lHighKm, jackSites: r.jackSites, prvSites: r.prvSites }, cp);
+        var e = COST.estimate(Q, { lengthKm: r.lengthKm, tunnelKm: r.tunnelKm || 0, zStart: dam.basic.lwl != null ? dam.basic.lwl : 0, zEnd: hwlOf(p) != null ? hwlOf(p) : 50, zHigh: r.zHigh, lHighKm: r.lHighKm, jackSites: r.jackSites, prvSites: r.prvSites }, cp);
         return { r: r, e: e };
       });
       if (prof.length) minKm = Math.min.apply(null, est.map(function (x) { return x.r.lengthKm; }));
@@ -994,7 +990,7 @@
       if (stg) notes.push('가뭄단계: ' + stg.v.label + ' (주의이상 +' + fmt(stg.v.dWarn, 0) + '일/년)');
       if (best.r.auto) notes.push('노선 자동 산정(지형 최고점 미반영)');
       if (best.r.profile) notes.push('노선 수리종단 검토 결과 사용: ' + best.r.name + (best.r.method === 'auto' ? ' (자동 탐색)' : ' (CAD 노선)') + (best.e.ok ? '' : ' – 가압 배치 실패, 조건 확인 필요'));
-      if (p.hwl == null) notes.push('정수장 HWL 미입력(50m 가정)');
+      if (hwlOf(p) == null) notes.push('정수장 HWL 미입력(50m 가정)');
       cands.push({ dam: dam, ev: ev, mtQ: mtQ, qtyOk: qtyOk, stg: stg, est: est, best: best, level: level, notes: notes, km: minKm });
     });
     // 기존 공급량 미상(U) 댐은 여유량이 과대 산정되므로 같은 등급 안에서도 맨 뒤로, 최우선 후보에서 제외
@@ -1017,8 +1013,14 @@
         var p = plantById(S.plant); if (!p || !p.fromGis) { alert('이미 검토 목록에 있는 정수장입니다.'); return; }
         regPlants().push({ id: p.id, name: p.name, gis: p.name, region: p.region, capacity: p.capacity, source: '', demand: S.plantQ[p.id] != null ? S.plantQ[p.id] : 10000, hwl: null, lat: p.lat, lon: p.lon, note: p.note });
         GPL = null; invalidate(); renderPlant();
-        alert(p.name + '을(를) 검토 목록에 추가했습니다. [정수장·노선 관리]에서 HWL·요청량을 입력하세요.');
+        alert(p.name + '을(를) 검토 목록에 추가했습니다. 위 칸에서 요청량·HWL을 입력하세요.');
       };
+      $('plDelReg').onclick = function () {
+        var i = plants().map(function (p) { return p.id; }).indexOf(S.plant); if (i < 0 || plants().length < 2) return;
+        if (!confirm(plants()[i].name + '을(를) 검토 목록에서 뺄까요?')) return;
+        regPlants().splice(i, 1); S.plant = plants()[0].id; plSelDam = null; invalidate(); renderPlant();
+      };
+      $('plHwl').onchange = function () { if (!S.plantHwl) S.plantHwl = {}; S.plantHwl[S.plant] = this.value === '' ? null : +this.value; RTC = {}; save(); renderPlant(); };
       $('plQ').oninput = function () { S.plantQ[S.plant] = this.value === '' ? null : +this.value; save(); clearTimeout(rz); rz = setTimeout(renderPlant, 300); };
       $('plR').oninput = function () { S.radius = +this.value || 120; save(); clearTimeout(rz); rz = setTimeout(renderPlant, 300); };
     }
@@ -1026,8 +1028,9 @@
     $('plSel').innerHTML = '<optgroup label="검토 목록">' + plants().map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + ' (' + esc(p.region || '') + ')</option>'; }).join('') + '</optgroup>' +
       (cur && cur.fromGis ? '<optgroup label="전국 검색"><option value="' + esc(cur.id) + '">' + esc(cur.name) + ' (' + esc(cur.region) + ')</option></optgroup>' : '');
     $('plAddReg').style.display = cur && cur.fromGis ? '' : 'none';
+    $('plDelReg').style.display = cur && !cur.fromGis && plants().length > 1 ? '' : 'none';
     PR = evalPlant(); if (!PR) return;
-    $('plSel').value = PR.p.id; $('plQ').value = PR.Q; $('plR').value = S.radius;
+    $('plSel').value = PR.p.id; $('plQ').value = PR.Q; $('plR').value = S.radius; $('plHwl').value = hwlOf(PR.p) != null ? hwlOf(PR.p) : '';
     var gcap = PR.p.fromGis ? PR.p.capacity : gisCapOf(PR.p);
     var ok = PR.cands.filter(function (c) { return c.level === 0; }), mid = PR.cands.filter(function (c) { return c.level === 1; });
     var top = PR.top = PR.cands.filter(function (c) { return !c.ev.unknown; })[0];
@@ -1097,9 +1100,47 @@
   /* ================= 노선 수리종단 검토 ================= */
   var rtBound = false, RTC = {};
   var RULE_LB = { avoid: '통과 금지', avoid_tunnel: '터널 통과 금지', penalty: '저촉 최소화', note: '저촉 집계' };
+  // 보호구역: 노선검토 CAD 자료(CONSTRAINTS, KDPA 2025)가 있는 범위는 그 자료를, 범위 밖은 브이월드 공간정보(PROTECT)를 씀
+  var CADBB, PCX = {};
+  function cadBox() {
+    if (CADBB !== undefined) return CADBB;
+    var b = [Infinity, Infinity, -Infinity, -Infinity];
+    (window.CONSTRAINTS || []).forEach(function (cn) { cn.parts.forEach(function (pp) { pp.forEach(function (rg) { rg.forEach(function (q) { b[0] = Math.min(b[0], q[0]); b[1] = Math.min(b[1], q[1]); b[2] = Math.max(b[2], q[0]); b[3] = Math.max(b[3], q[1]); }); }); }); });
+    return (CADBB = b[0] < Infinity ? b : null);
+  }
+  function inCad(lo, la) { var b = cadBox(); return !!b && lo >= b[0] && lo <= b[2] && la >= b[1] && la <= b[3]; }
+  function featBox(f) {
+    if (f._bb) return f._bb; var b = [Infinity, Infinity, -Infinity, -Infinity];
+    f.parts.forEach(function (pp) { pp[0].forEach(function (q) { b[0] = Math.min(b[0], q[0]); b[1] = Math.min(b[1], q[1]); b[2] = Math.max(b[2], q[0]); b[3] = Math.max(b[3], q[1]); }); });
+    return (f._bb = b);
+  }
+  function inFeat(f, lo, la) {
+    var b = featBox(f); if (lo < b[0] || lo > b[2] || la < b[1] || la > b[3]) return false;
+    return f.parts.some(function (pp) {   // 바깥 고리와 구멍을 짝홀 규칙으로
+      var c = false;
+      pp.forEach(function (rg) { for (var i = 0, j = rg.length - 1; i < rg.length; j = i++) { var xi = rg[i][0], yi = rg[i][1], xj = rg[j][0], yj = rg[j][1]; if ((yi > la) !== (yj > la) && lo < (xj - xi) * (la - yi) / (yj - yi) + xi) c = !c; } });
+      return c;
+    });
+  }
+  function protCross(r) {
+    if (PCX[r.name]) return PCX[r.name];
+    var acc = {};
+    var fs = (window.CONSTRAINTS || []).map(function (f) { return [f, true]; }).concat((window.PROTECT || []).map(function (f) { return [f, false]; }));
+    fs.forEach(function (ff) {
+      var f = ff[0];
+      for (var i = 1; i < r.pts.length; i++) {
+        var a = r.pts[i - 1], z = r.pts[i], lo = (a[1] + z[1]) / 2, la = (a[2] + z[2]) / 2;
+        if (inCad(lo, la) !== ff[1] || !inFeat(f, lo, la)) continue;
+        var o = acc[f.name] || (acc[f.name] = { name: f.name, cat: f.cat, rule: f.rule, surfaceM: 0, tunnelM: 0, src: ff[1] ? 'CAD' : '브이월드' });
+        if (r.segments[z[4]].kind === 'TUNNEL') o.tunnelM += z[0] - a[0]; else o.surfaceM += z[0] - a[0];
+      }
+    });
+    return (PCX[r.name] = Object.keys(acc).map(function (k) { return acc[k]; }));
+  }
+  function crossOf(r) { return protCross(r).filter(function (x) { return x.surfaceM + x.tunnelM >= 1; }); }
   function routesFor(damName, p) {
     var keys = [p.gis, p.name].filter(Boolean);
-    return (window.ROUTES || []).filter(function (r) { return (!damName || r.dam === damName) && keys.indexOf(r.plant) >= 0; });
+    return (window.ROUTES || []).filter(function (r) { return r.method === 'auto' && (!damName || r.dam === damName) && keys.indexOf(r.plant) >= 0; });
   }
   function rtParams() {
     if (!S.rt) S.rt = {};
@@ -1110,7 +1151,7 @@
   function rtDesign(r, Q, dam, p, pr, key) {
     var cp = Object.assign({}, COST.DEF, costParams()), qd = Q * cp.peak / 86400;
     var lwl = pr.lwl[key] != null ? pr.lwl[key] : (dam && dam.basic.lwl != null ? dam.basic.lwl : 0);
-    var hwl = pr.hwl[key] != null ? pr.hwl[key] : (p.hwl != null ? p.hwl : 50);
+    var hwl = pr.hwl[key] != null ? pr.hwl[key] : (hwlOf(p) != null ? hwlOf(p) : 50);
     var ck = [r.name, Q, lwl, hwl, pr.D, pr.pMin, pr.pMax, pr.hMax, JSON.stringify(costParams())].join('|');
     if (RTC[ck]) return RTC[ck];
     var Dm = {}, autoD = COST.chooseD(qd, cp.vMax, cp.C, cp.sMax);
@@ -1122,7 +1163,7 @@
     var c = COST.fromDesign(Q, r, d, costParams());
     var tun = [];
     r.segments.forEach(function (s, k) { if (s.kind !== 'TUNNEL') return; var a = Infinity, b = -Infinity; for (var i = 0; i < d.x.length; i++) if (d.seg[i] === k) { a = Math.min(a, d.x[i]); b = Math.max(b, d.x[i]); } if (a < b) tun.push([a, b]); });
-    var prot = (r.crossings || []).filter(function (x) { return x.rule !== 'note'; }).reduce(function (s, x) { return s + x.surfaceM + x.tunnelM; }, 0);
+    var prot = crossOf(r).filter(function (x) { return x.rule !== 'note'; }).reduce(function (s, x) { return s + x.surfaceM + x.tunnelM; }, 0);
     return (RTC[ck] = { r: r, d: d, c: c, lwl: lwl, hwl: hwl, qd: qd, tun: tun, prot: prot });
   }
   // 수리종단 설계 결과를 순위표·상세표 형식(COST.estimate 결과와 같은 필드)으로 바꿈
@@ -1192,14 +1233,14 @@
       .concat(d.prv.map(function (q, k) { return '<tr><td>V' + (k + 1) + ' 감압밸브</td><td>' + fmt(q.x, 2) + '</td><td>' + fmt(q.ground, 0) + '</td><td>' + fmt(q.hIn, 1) + ' → ' + fmt(q.hOut, 1) + '</td><td>−' + fmt(q.dH, 1) + 'm</td></tr>'; }));
     $('rtFac').innerHTML = '<table class="t"><tr><th>시설</th><th>위치(km)</th><th>지반 EL.</th><th>동수두 EL.</th><th>양정·감압</th></tr>' + (fac.join('') || '<tr><td colspan="5" class="muted">가압·감압 없이 자연유하</td></tr>') + '</table>';
     // 저촉
-    var cr = r.crossings || [];
-    $('rtCross').innerHTML = cr.length ? '<table class="t"><tr><th>구역</th><th>검토 규칙</th><th>지표(m)</th><th>터널(m)</th></tr>' + cr.map(function (x) {
-      return '<tr><td class="l">' + esc(x.name) + '</td><td>' + (RULE_LB[x.rule] || x.rule) + '</td><td>' + fmt(x.surfaceM, 0) + '</td><td>' + fmt(x.tunnelM, 0) + '</td></tr>'; }).join('') + '</table>' : '<p class="hint">저촉 구역 없음 (또는 이 지역 보호구역 자료 없음)</p>';
+    var cr = crossOf(r);
+    $('rtCross').innerHTML = cr.length ? '<table class="t"><tr><th>구역</th><th>검토 규칙</th><th>지표(m)</th><th>터널(m)</th><th>자료</th></tr>' + cr.map(function (x) {
+      return '<tr><td class="l">' + esc(x.name) + '</td><td>' + (RULE_LB[x.rule] || x.rule) + '</td><td>' + fmt(x.surfaceM, 0) + '</td><td>' + fmt(x.tunnelM, 0) + '</td><td class="small muted">' + x.src + '</td></tr>'; }).join('') + '</table>' : '<p class="hint">저촉 구역 없음 (국립공원·상수원보호구역·자연환경보전지역·산림보호구역 기준. 도립·군립공원은 노선검토 CAD 자료가 있는 구역만)</p>';
     drawRouteMap($('rtMap'), all, cur, damByName(cur.r.dam), p);
     var s = r.search;
     $('rtNote').innerHTML = (r.method === 'auto' ? '자동 탐색 노선: ' + fmt(s.res, 0) + 'm 격자에서 관로 공사비(도로 ' + fmt(s.uRoad / 1e6, 2) + '·도로 밖 ' + fmt(s.uOff / 1e6, 2) + '백만원/m)와 오르막 양수 비용(1m당 ' + fmt(s.lam / 1e8, 2) + '억원)의 합이 가장 작은 경로이며, 터널은 1개(최대 ' + fmt(s.tunnelMax / 1000, 0) + 'km)까지 고려했습니다. 지장물·지질·민원·하천 횡단 공법은 반영하지 않습니다. ' :
       'CAD 노선(' + esc(r.source || '') + ')을 20m 간격으로 나눠 지반고를 읽었습니다. ' + (r.note ? esc(r.note) + '. ' : '')) +
-      '지반고는 Copernicus 30m DEM(수목·건물 포함 표면고)이라 ±5~10m 개략값입니다. 관저고 = 지반 − 2m, 터널은 갱구 관저고를 직선으로 잇습니다. 가압장은 하류 최고점을 넘는 데 필요한 만큼만 올리고 양정을 고르게 나눴으며, 고점 이후 남는 수두는 잔류수두 70m를 넘는 곳에서 35m까지 감압합니다(정수장 도달 여유 6m). 사업비는 2026년 단가, 30년 총비용 = 총사업비 + 전력비 현가(4.5%).';
+      '보호구역은 노선검토 CAD 자료(KDPA 2025, 도립·군립공원·천연기념물 포함)가 있는 구역은 그 자료를, 그 밖은 브이월드 공간정보(국립공원·상수원보호구역·자연환경보전지역·산림보호구역)입니다. 지반고는 Copernicus 30m DEM(수목·건물 포함 표면고)이라 ±5~10m 개략값입니다. 관저고 = 지반 − 2m, 터널은 갱구 관저고를 직선으로 잇습니다. 가압장은 하류 최고점을 넘는 데 필요한 만큼만 올리고 양정을 고르게 나눴으며, 고점 이후 남는 수두는 잔류수두 70m를 넘는 곳에서 35m까지 감압합니다(정수장 도달 여유 6m). 사업비는 2026년 단가, 30년 총비용 = 총사업비 + 전력비 현가(4.5%).';
   }
   function drawRouteMap(el, all, cur, dam, p) {
     var b = [Infinity, -Infinity, Infinity, -Infinity];
@@ -1227,6 +1268,15 @@
         s += '<text x="' + X(pl[1]) + '" y="' + Y(pl[2]) + '" text-anchor="middle" font-size="' + (pl[3] === 'village' ? 9 : pl[3] === 'town' ? 11 : 12.5) + '" fill="#6b6255" font-weight="' + (pl[3] === 'village' ? 400 : 600) + '" paint-order="stroke" stroke="#f6f4ee" stroke-width="2.5">' + esc(pl[0]) + '</text>';
       });
     }
+    var pPath = function (cn) {
+      var dd = cn.parts.map(function (pp) { return pp.map(function (rg) { return 'M' + rg.map(function (q) { return X(q[0]) + ' ' + Y(q[1]); }).join('L') + 'Z'; }).join(''); }).join('');
+      return '<path d="' + dd + '" fill="' + (col[cn.rule] || '#ccc') + '" fill-opacity="' + (cn.rule === 'note' ? 0.12 : 0.28) + '" fill-rule="evenodd" stroke="' + (col[cn.rule] || '#ccc') + '" stroke-width=".6"><title>' + esc(cn.name) + ' · ' + (RULE_LB[cn.rule] || cn.rule) + '</title></path>';
+    };
+    var vis = (window.PROTECT || []).filter(function (f) { var b = featBox(f); return b[2] >= minLo && b[0] <= maxLo && b[3] >= minLaV && b[1] <= maxLa; });
+    if (vis.length) {
+      var cb = cadBox();
+      s += '<defs><mask id="rtCadMask"><rect width="' + Wd + '" height="' + Hd + '" fill="#fff"/>' + (cb ? '<rect x="' + X(cb[0]) + '" y="' + Y(cb[3]) + '" width="' + (X(cb[2]) - X(cb[0])).toFixed(1) + '" height="' + (Y(cb[1]) - Y(cb[3])).toFixed(1) + '" fill="#000"/>' : '') + '</mask></defs><g mask="url(#rtCadMask)">' + vis.map(pPath).join('') + '</g>';
+    }
     (window.CONSTRAINTS || []).forEach(function (cn) {
       var dd = cn.parts.map(function (pp) { return pp.map(function (rg) { return 'M' + rg.map(function (q) { return X(q[0]) + ' ' + Y(q[1]); }).join('L') + 'Z'; }).join(''); }).join('');
       s += '<path d="' + dd + '" fill="' + (col[cn.rule] || '#ccc') + '" fill-opacity="' + (cn.rule === 'note' ? 0.12 : 0.28) + '" fill-rule="evenodd" stroke="' + (col[cn.rule] || '#ccc') + '" stroke-width=".6"><title>' + esc(cn.name) + ' · ' + (RULE_LB[cn.rule] || cn.rule) + '</title></path>';
@@ -1252,94 +1302,36 @@
     // 축척 막대와 출처
     var kmPerPx = spLo * 111.32 * k / Wd, nice = [0.5, 1, 2, 5, 10, 20], sb = nice.filter(function (v) { return v / kmPerPx <= 140; }).pop() || 0.5, sw = sb / kmPerPx;
     s += '<g font-size="10" fill="#4a5664"><rect x="' + (Wd - sw - 16) + '" y="10" width="' + (sw + 10) + '" height="22" rx="3" fill="rgba(255,255,255,.85)"/><path d="M' + (Wd - sw - 11) + ' 26h' + sw + '" stroke="#333" stroke-width="2"/><text x="' + (Wd - sw / 2 - 11) + '" y="21" text-anchor="middle">' + sb + ' km</text></g>';
-    if (RB) s += '<text x="' + (Wd - 6) + '" y="' + (Hd - 6) + '" text-anchor="end" font-size="9" fill="#7b8794">© OpenStreetMap 기여자</text>';
+    if (RB) s += '<text x="' + (Wd - 6) + '" y="' + (Hd - 6) + '" text-anchor="end" font-size="9" fill="#7b8794">© OpenStreetMap 기여자' + ((window.PROTECT || []).length ? ' · 보호구역 브이월드' : '') + '</text>';
     el.innerHTML = s + '</svg>';
   }
 
-  /* ================= 정수장·노선 관리 ================= */
+  /* ================= 사업비 산정 변수 (공급 검토 탭 아래) ================= */
   function regPlants() { if (!S.reg.plants) S.reg.plants = clone(REG.plants); return S.reg.plants; }
-  function regRoutes() { if (!S.reg.routes) S.reg.routes = clone(REG.routes); return S.reg.routes; }
-  function invalidate() { EC = {}; GPL = null; save(); }
-  var regBound = false;
-  function renderRegistry() {
-    var pl = plants(), rt = routes();
-    var pcols = [['name', '정수장명', 'text'], ['region', '지자체', 'text'], ['capacity', '시설용량(㎥/일)', 'number'], ['source', '현재 수원', 'text'], ['demand', '추가 요청량(㎥/일)', 'number'], ['hwl', 'HWL(EL.m)', 'number'], ['lat', '위도', 'number'], ['lon', '경도', 'number'], ['note', '비고', 'text']];
-    $('regPlants').innerHTML = '<table class="t edit"><tr>' + pcols.map(function (c) { return '<th>' + c[1] + '</th>'; }).join('') + '<th></th></tr>' + pl.map(function (p, i) {
-      var gc = gisCapOf(p);   // 비어 있으면 MyWater GIS 시설용량을 흐린 글씨로 보여 주고 계산에도 씀
-      return '<tr>' + pcols.map(function (c) { var ph = c[0] === 'capacity' && p.capacity == null && gc ? ' placeholder="' + gc + ' (MyWater)" title="MyWater GIS 정수장 시설용량. 다른 값을 알면 직접 입력하세요."' : ''; return '<td><input type="' + c[2] + '" data-t="plant" data-i="' + i + '" data-k="' + c[0] + '" value="' + esc(p[c[0]] == null ? '' : p[c[0]]) + '"' + ph + (c[2] === 'number' ? ' step="any"' : '') + '></td>'; }).join('') + '<td><button class="x" data-del-plant="' + i + '">×</button></td></tr>';
-    }).join('') + '</table>';
-    var rcols = [['lengthKm', '연장(km)'], ['tunnelKm', '터널(km)'], ['zHigh', '최고점(EL.m)'], ['lHighKm', '최고점 거리(km)'], ['jackSites', '추진(개소)'], ['prvSites', '감압밸브']];
-    $('regRoutes').innerHTML = '<table class="t edit"><tr><th>댐</th><th>정수장</th><th>노선명</th>' + rcols.map(function (c) { return '<th>' + c[1] + '</th>'; }).join('') + '<th>보고서 사업비(억)</th><th></th></tr>' + rt.map(function (r, i) {
-      return '<tr><td><select data-t="route" data-i="' + i + '" data-k="dam">' + DAMS.map(function (d) { return '<option' + (d.name === r.dam ? ' selected' : '') + '>' + esc(d.name) + '</option>'; }).join('') + '</select></td>' +
-        '<td><select data-t="route" data-i="' + i + '" data-k="plant">' + pl.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === r.plant ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></td>' +
-        '<td><input type="text" data-t="route" data-i="' + i + '" data-k="name" value="' + esc(r.name) + '"></td>' +
-        rcols.map(function (c) { return '<td><input type="number" step="any" data-t="route" data-i="' + i + '" data-k="' + c[0] + '" value="' + (r[c[0]] == null ? '' : r[c[0]]) + '"></td>'; }).join('') +
-        '<td>' + (r.report ? fmt(r.report.total2026, 0) : '-') + '</td><td><button class="x" data-del-route="' + i + '">×</button></td></tr>';
-    }).join('') + '</table>';
-    $('regDams').innerHTML = '<table class="t edit"><tr><th>댐</th><th>위도</th><th>경도</th><th>저수위(EL.m)</th><th>상시만수위(EL.m)</th><th>좌표 출처</th></tr>' + DAMS.map(function (d) {
-      var c = coordOf(d.name) || ['', ''];
-      return '<tr><td>' + esc(d.name) + '</td><td><input type="number" step="any" data-t="dam" data-n="' + esc(d.name) + '" data-k="0" value="' + c[0] + '"></td><td><input type="number" step="any" data-t="dam" data-n="' + esc(d.name) + '" data-k="1" value="' + c[1] + '"></td><td>' + (d.basic.lwl != null ? d.basic.lwl : '-') + '</td><td>' + (d.basic.nwl != null ? d.basic.nwl : '-') + '</td><td>' + coordSrc(d.name) + '</td></tr>';
-    }).join('') + '</table>';
+  function invalidate() { EC = {}; GPL = null; RTC = {}; save(); }
+  var costBound = false;
+  function renderCost() {
     var cdef = COST.DEF, cp = costParams();
     var ck = [['detour', '우회계수(직선거리 배수)'], ['vMax', '최대 유속(m/s)'], ['sMax', '최대 동수경사(m/km)'], ['peak', '시설용량/평균 배수'], ['roadShare', '도로구간 비율'], ['powerPrice', '전력단가(원/kWh)'], ['landPerM', '용지보상비(원/m)'], ['tunnelPerM', '터널 단가(원/m)'], ['rate', '할인율'], ['years', '분석기간(년)'], ['maxStageHead', '가압장 1개소 최대양정(m)']];
-    $('regCost').innerHTML = '<table class="t edit"><tr><th>변수</th><th>값</th><th>기본값</th></tr>' + ck.map(function (k) { return '<tr><td>' + k[1] + '</td><td><input type="number" step="any" data-t="cost" data-k="' + k[0] + '" value="' + (cp[k[0]] != null ? cp[k[0]] : '') + '" placeholder="' + cdef[k[0]] + '"></td><td>' + fmt(cdef[k[0]], 3) + '</td></tr>'; }).join('') + '</table>';
-    if (regBound) return; regBound = true;
-    var root = $('tab-registry');
-    root.addEventListener('change', function (e) {
-      var t = e.target, ty = t.dataset.t; if (!ty) return;
-      var val = t.type === 'number' ? (t.value === '' ? null : +t.value) : t.value;
-      if (ty === 'plant') regPlants()[+t.dataset.i][t.dataset.k] = val;
-      if (ty === 'route') regRoutes()[+t.dataset.i][t.dataset.k] = val;
-      if (ty === 'dam') { var c = (S.reg.damCoords[t.dataset.n] || (coordOf(t.dataset.n) || [null, null]).slice()); c[+t.dataset.k] = val; S.reg.damCoords[t.dataset.n] = c; }
-      if (ty === 'cost') { if (val == null) delete S.reg.cost[t.dataset.k]; else S.reg.cost[t.dataset.k] = val; }
-      invalidate();
+    $('regCost').innerHTML = '<table class="t edit"><tr><th>변수</th><th>값</th><th>기본값</th></tr>' + ck.map(function (k) { return '<tr><td>' + k[1] + '</td><td><input type="number" step="any" data-k="' + k[0] + '" value="' + (cp[k[0]] != null ? cp[k[0]] : '') + '" placeholder="' + cdef[k[0]] + '"></td><td>' + fmt(cdef[k[0]], 3) + '</td></tr>'; }).join('') + '</table>';
+    if (costBound) return; costBound = true;
+    $('regCost').addEventListener('change', function (e) {
+      var t = e.target, k = t.dataset.k; if (!k) return;
+      if (t.value === '') delete S.reg.cost[k]; else S.reg.cost[k] = +t.value;
+      invalidate(); renderPlant();
     });
-    root.addEventListener('click', function (e) {
-      var t = e.target;
-      if (t.dataset.delPlant != null) { regPlants().splice(+t.dataset.delPlant, 1); invalidate(); renderRegistry(); }
-      if (t.dataset.delRoute != null) { regRoutes().splice(+t.dataset.delRoute, 1); invalidate(); renderRegistry(); }
-    });
-    $('regAddPlant').onclick = function () { regPlants().push({ id: 'p' + Date.now(), name: '새 정수장', region: '', capacity: null, source: '', demand: 10000, hwl: null, lat: null, lon: null, note: '' }); invalidate(); renderRegistry(); };
-    $('regAddRoute').onclick = function () { regRoutes().push({ dam: DAMS[0].name, plant: plants()[0].id, name: '검토 노선', lengthKm: 20, tunnelKm: 0, zHigh: null, lHighKm: null }); invalidate(); renderRegistry(); };
-    $('regReset').onclick = function () { if (!confirm('정수장·노선·좌표·사업비 변수를 기본값으로 되돌릴까요?')) return; S.reg = clone(DEF.reg); invalidate(); renderRegistry(); };
-    $('regExport').onclick = function () { download('물담설정_' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify({ reg: S.reg, baselines: BASES }, null, 1), 'application/json'); };
-    $('regImport').onchange = function () {
-      var f = this.files[0]; if (!f) return; var rd = new FileReader();
-      rd.onload = function () { try { var j = JSON.parse(rd.result); if (j.reg) S.reg = Object.assign(clone(DEF.reg), j.reg); if (j.baselines) { BASES = j.baselines; localStorage.setItem(STORE_BASE, JSON.stringify(BASES)); SDS = {}; } invalidate(); renderRegistry(); alert('설정을 불러왔습니다.'); } catch (err) { alert('JSON 형식 오류: ' + err); } };
-      rd.readAsText(f, 'utf-8');
-    };
+    $('regReset').onclick = function () { if (!confirm('사업비 산정 변수를 기본값으로 되돌릴까요?')) return; S.reg.cost = {}; invalidate(); renderCost(); renderPlant(); };
   }
 
-  /* ================= 자료·방법론 ================= */
-  var dataBound = false;
+  /* ================= 가뭄단계 기준선 불러오기 ================= */
+  var upBound = false;
   function blankMd() { var o = [], d = new Date(2001, 0, 1); for (var i = 0; i < 365; i++, d.setDate(d.getDate() + 1)) o.push(('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2)); return o; }
-  function renderData() {
-    var h = '<table class="t">';
-    h += '<tr><td>MyWater 일자료</td><td class="l">' + (MW ? esc(MW.source) + ' · 수집 ' + MW.collected.replace('T', ' ') + ' · ' + MW.dams.length + '개 댐 (' + (MW.river === 'all' ? '전국' : esc(MW.river)) + ')<br><span class="muted">저수위·저수량·유입량·총방류량 일자료, 제원(기본현황), 대응단계 기준저수량(수집일 기준)</span>' : '<b>없음</b> — tools/collect_mywater.py 실행 필요') + '</td></tr>';
-    h += '<tr><td>MyWater GIS</td><td class="l">' + (GIS ? '수집 ' + GIS.collected.replace('T', ' ') + ' · 댐 좌표 ' + Object.keys(GIS.dams).length + '개 · 정수장 ' + GIS.plants.length + '곳(시설용량 ' + GIS.plants.filter(function (p) { return p.capacity; }).length + '곳)' : '<b>없음</b> — tools/collect_gis.py 실행 필요') + '<br><span class="muted">gisportal.water.or.kr 시설운영정보: 댐·광역/공업/지방 정수장 위치, 광역 시설 상세(시설용량·급수지역)</span></td></tr>';
-    
-    h += '<tr><td>현재 가뭄단계(보완)</td><td class="l">국가가뭄정보포털(기후에너지환경부, drought.go.kr) 수원현황 다목적댐·용수댐 가뭄단계 – MyWater에 단계가 없는 댐(남강·섬진강·대곡·사연 등)에 씀</td></tr>';
-    h += '<tr><td>사업비 단가</td><td class="l">K-water 「수도시설 운영비 및 개략공사비 산정기준」 개략공사비 산정 프로그램(2026년 1월 단가), 예비타당성조사 사업비 산정 방식(부대경비·예비비)</td></tr>';
-    
-    var sd = DAMS.filter(function (d) { return d.mw; }).map(function (d) { return d.name.replace('댐', '') + ' ' + snapDays(d); });
-    h += '<tr><td>기준저수량 누적</td><td class="l">MyWater 대응단계 기준저수량 일일 기록(300일 이상 쌓이면 가뭄단계 분석에 자동 사용, 단위: 일)<br><span class="muted">' + esc(sd.join(' · ')) + '</span></td></tr>';
-    h += '<tr><td>사용자 기준선</td><td class="l">' + (Object.keys(BASES).length ? Object.keys(BASES).map(esc).join(', ') : '없음') + '</td></tr></table>';
-    $('srcInfo').innerHTML = h;
-    // 검증표
-    var v = '<table class="t"><tr><th>구분</th><th>항목</th><th>원자료 값</th><th>본 엔진</th><th>결과</th></tr>';
-    D05.dams.forEach(function (d) {
-      var m = WB.fromD05(d), r = WB.run(m, d.addCms), mt = WB.metrics(m, r), err = 0;
-      d.series.forEach(function (s, i) { if (s[4] != null) err = Math.max(err, Math.abs(s[4] - r.storage[i])); });
-      v += '<tr><td>장기모의 물수지</td><td class="l">' + esc(d.name) + ' 반순 부족 / 연 부족 / 저류량 최대오차</td><td>' + d.result.stepDef + ' / ' + d.result.yearDef + '</td><td>' + mt.stepDef + ' / ' + mt.year.def + ' / ' + fmt(err, 3) + '백만㎥</td><td>' + (mt.stepDef === d.result.stepDef && mt.year.def === d.result.yearDef ? '<span class="pill l0">일치</span>' : '<span class="pill l1">차이</span>') + '</td></tr>';
-    });
-    
-    v += '</table>' + ('<p class="hint">공개판에는 내부 검토자료가 없어 엔진 검증표를 싣지 않았습니다. 검증 결과는 공개판에 싣지 않았습니다.</p>');
-    $('valTable').innerHTML = v;
-    $('upDam').innerHTML = damOptions(function (d) { return !!d.mw; });
-    if (dataBound) return; dataBound = true;
+  function renderUpload() {
+    $('upList').textContent = Object.keys(BASES).length ? '불러온 기준선: ' + Object.keys(BASES).join(', ') : '';
+    if (upBound) return; upBound = true;
     $('tplBase').onclick = function () { download('가뭄기준선_양식.csv', '﻿월일,관심,주의,심각,가동기준,정상환원\n' + (P ? P.unmun.baseline.map(function (b) { return [b.md, b.gs, b.js, b.ss, b.es, b.ns].join(','); }) : blankMd().map(function (md) { return md + ',,,,,'; })).join('\n'), 'text/csv;charset=utf-8'); };
     $('upGo').onclick = function () {
-      var f = $('upBase').files[0], name = $('upDam').value, msg = $('upMsg');
+      var f = $('upBase').files[0], name = S.st.dam, msg = $('upMsg');
       if (!f) { msg.textContent = '파일을 선택하세요.'; return; }
       var rd = new FileReader();
       rd.onload = function () {
@@ -1352,8 +1344,8 @@
         if (base.length < 365) { msg.textContent = '오류: 1.1~12.31 일별 365행 이상이 필요합니다 (' + base.length + '행).'; return; }
         BASES[name] = base; try { localStorage.setItem(STORE_BASE, JSON.stringify(BASES)); } catch (e) { /* 용량 */ }
         SDS = {}; S.st.dam = name; save();
-        msg.textContent = name + ' 기준선을 불러왔습니다. [가뭄단계 분석] 탭에서 확인하세요.';
-        renderData();
+        msg.textContent = name + ' 기준선을 불러왔습니다.';
+        renderStage(); renderUpload();
       };
       rd.readAsArrayBuffer(f);
     };
@@ -1388,6 +1380,7 @@
     if (q.open) S.plOpen = q.open === '1';
     if (q.crit && CRIT_SEL.indexOf(q.crit) >= 0) S.crit = q.crit;
   })();
+  if (!$('tab-' + S.tab)) S.tab = 'overview';   // 없어진 탭(정수장·노선 관리, 자료·방법론)이 저장돼 있던 브라우저
   initControls();
   showTab();
 })();
