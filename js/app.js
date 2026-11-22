@@ -990,7 +990,7 @@
       if (stg) notes.push('가뭄단계: ' + stg.v.label + ' (주의이상 +' + fmt(stg.v.dWarn, 0) + '일/년)');
       if (best.r.auto) notes.push('노선 자동 산정(지형 최고점 미반영)');
       if (best.r.profile) notes.push('노선 수리종단 검토 결과 사용: ' + best.r.name + (best.r.method === 'auto' ? ' (자동 탐색)' : ' (CAD 노선)') + (best.e.ok ? '' : ' – 가압 배치 실패, 조건 확인 필요'));
-      if (hwlOf(p) == null) notes.push('정수장 HWL 미입력(50m 가정)');
+      if (hwlOf(p) == null) notes.push(prof.length ? '정수장 HWL 미입력(노선 끝 지반고 + 5m 가정)' : '정수장 HWL 미입력(50m 가정)');
       cands.push({ dam: dam, ev: ev, mtQ: mtQ, qtyOk: qtyOk, stg: stg, est: est, best: best, level: level, notes: notes, km: minKm });
     });
     // 기존 공급량 미상(U) 댐은 여유량이 과대 산정되므로 같은 등급 안에서도 맨 뒤로, 최우선 후보에서 제외
@@ -1151,7 +1151,7 @@
   function rtDesign(r, Q, dam, p, pr, key) {
     var cp = Object.assign({}, COST.DEF, costParams()), qd = Q * cp.peak / 86400;
     var lwl = pr.lwl[key] != null ? pr.lwl[key] : (dam && dam.basic.lwl != null ? dam.basic.lwl : 0);
-    var hwl = pr.hwl[key] != null ? pr.hwl[key] : (hwlOf(p) != null ? hwlOf(p) : 50);
+    var hwl = pr.hwl[key] != null ? pr.hwl[key] : (hwlOf(p) != null ? hwlOf(p) : Math.round(r.pts[r.pts.length - 1][3] + 5));   // HWL 미입력: 노선 끝 지반고 + 5m
     var ck = [r.name, Q, lwl, hwl, pr.D, pr.pMin, pr.pMax, pr.hMax, JSON.stringify(costParams())].join('|');
     if (RTC[ck]) return RTC[ck];
     var Dm = {}, autoD = COST.chooseD(qd, cp.vMax, cp.C, cp.sMax);
@@ -1200,7 +1200,7 @@
       ['rtKpis', 'rtCmp', 'rtFac', 'rtCross', 'rtMap'].forEach(function (id) { $(id).innerHTML = ''; });
       $('cRt').getContext('2d').clearRect(0, 0, 9999, 9999);
       $('rtCtl').style.display = 'none';
-      $('rtNote').innerHTML = '공개판에는 수리종단 노선 자료가 들어 있지 않습니다. 위 후보 표의 개략 산정(직선거리 × 우회계수)으로 관경·양정·사업비를 봅니다.';
+      $('rtNote').innerHTML = '이 댐–정수장 쌍은 수리종단 노선 자료가 없어, 위 후보 표의 개략 산정(직선거리 × 우회계수)으로 관경·양정·사업비를 봅니다. 수리종단 예시 노선은 소양정수장에서 볼 수 있습니다.';
       return;
     }
     $('rtCtl').style.display = '';
@@ -1235,16 +1235,17 @@
     // 저촉
     var cr = crossOf(r);
     $('rtCross').innerHTML = cr.length ? '<table class="t"><tr><th>구역</th><th>검토 규칙</th><th>지표(m)</th><th>터널(m)</th><th>자료</th></tr>' + cr.map(function (x) {
-      return '<tr><td class="l">' + esc(x.name) + '</td><td>' + (RULE_LB[x.rule] || x.rule) + '</td><td>' + fmt(x.surfaceM, 0) + '</td><td>' + fmt(x.tunnelM, 0) + '</td><td class="small muted">' + x.src + '</td></tr>'; }).join('') + '</table>' : '<p class="hint">저촉 구역 없음 (국립공원·상수원보호구역·자연환경보전지역·산림보호구역 기준. 도립·군립공원은 노선검토 CAD 자료가 있는 구역만)</p>';
+      return '<tr><td class="l">' + esc(x.name) + '</td><td>' + (RULE_LB[x.rule] || x.rule) + '</td><td>' + fmt(x.surfaceM, 0) + '</td><td>' + fmt(x.tunnelM, 0) + '</td><td class="small muted">' + x.src + '</td></tr>'; }).join('') + '</table>' : '<p class="hint">저촉 구역 없음 (국립공원·상수원보호구역·자연환경보전지역·산림보호구역 기준. 도립·군립공원 자료는 없음)</p>';
     drawRouteMap($('rtMap'), all, cur, damByName(cur.r.dam), p);
     var s = r.search;
     $('rtNote').innerHTML = (r.method === 'auto' ? '자동 탐색 노선: ' + fmt(s.res, 0) + 'm 격자에서 관로 공사비(도로 ' + fmt(s.uRoad / 1e6, 2) + '·도로 밖 ' + fmt(s.uOff / 1e6, 2) + '백만원/m)와 오르막 양수 비용(1m당 ' + fmt(s.lam / 1e8, 2) + '억원)의 합이 가장 작은 경로이며, 터널은 1개(최대 ' + fmt(s.tunnelMax / 1000, 0) + 'km)까지 고려했습니다. 지장물·지질·민원·하천 횡단 공법은 반영하지 않습니다. ' :
-      'CAD 노선(' + esc(r.source || '') + ')을 20m 간격으로 나눠 지반고를 읽었습니다. ' + (r.note ? esc(r.note) + '. ' : '')) +
-      '보호구역은 노선검토 CAD 자료(KDPA 2025, 도립·군립공원·천연기념물 포함)가 있는 구역은 그 자료를, 그 밖은 브이월드 공간정보(국립공원·상수원보호구역·자연환경보전지역·산림보호구역)입니다. 지반고는 Copernicus 30m DEM(수목·건물 포함 표면고)이라 ±5~10m 개략값입니다. 관저고 = 지반 − 2m, 터널은 갱구 관저고를 직선으로 잇습니다. 가압장은 하류 최고점을 넘는 데 필요한 만큼만 올리고 양정을 고르게 나눴으며, 고점 이후 남는 수두는 잔류수두 70m를 넘는 곳에서 35m까지 감압합니다(정수장 도달 여유 6m). 사업비는 2026년 단가, 30년 총비용 = 총사업비 + 전력비 현가(4.5%).';
+      '') +
+      '보호구역은 브이월드 공간정보(국립공원·상수원보호구역·자연환경보전지역·산림보호구역)입니다. 지반고는 Copernicus 30m DEM(수목·건물 포함 표면고)이라 ±5~10m 개략값입니다. 관저고 = 지반 − 2m, 터널은 갱구 관저고를 직선으로 잇습니다. 가압장은 하류 최고점을 넘는 데 필요한 만큼만 올리고 양정을 고르게 나눴으며, 고점 이후 남는 수두는 잔류수두 70m를 넘는 곳에서 35m까지 감압합니다(정수장 도달 여유 6m). 사업비는 2026년 단가, 30년 총비용 = 총사업비 + 전력비 현가(4.5%).';
   }
   function drawRouteMap(el, all, cur, dam, p) {
     var b = [Infinity, -Infinity, Infinity, -Infinity];
-    all.forEach(function (x) { x.r.pts.forEach(function (q) { b[0] = Math.min(b[0], q[2]); b[1] = Math.max(b[1], q[2]); b[2] = Math.min(b[2], q[1]); b[3] = Math.max(b[3], q[1]); }); });
+    // 고른 노선에 맞춰 보여 줌(길이가 크게 다른 노선과 함께 맞추면 짧은 노선이 점처럼 보임). 다른 노선은 범위 안에 들어오는 만큼만 보임
+    cur.r.pts.forEach(function (q) { b[0] = Math.min(b[0], q[2]); b[1] = Math.max(b[1], q[2]); b[2] = Math.min(b[2], q[1]); b[3] = Math.max(b[3], q[1]); });
     var cLa = (b[0] + b[1]) / 2, k = Math.cos(cLa * Math.PI / 180), spLa = (b[1] - b[0]) * 1.15 + 0.02, spLo = (b[3] - b[2]) * 1.35 + 0.03;
     var Wd = 600, ratio = Math.min(1.1, Math.max(0.55, spLa / (spLo * k))), Hd = Math.round(Wd * ratio);
     if (spLa / (spLo * k) > ratio) spLo = spLa / (ratio * k); else spLa = spLo * k * ratio;
