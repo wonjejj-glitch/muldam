@@ -339,37 +339,35 @@
     var shown = DAMS.filter(function (d) { return (!S.fKind || d.kind === S.fKind) && (!S.fRiver || d.river === S.fRiver); });
     var rows = shown.map(function (d) { return { d: d, ev: evalDam(d), obs: lastObs(d) }; });
     var warn = rows.filter(function (r) { var cs = curStage(r.d); return cs && E.stageCode(cs.stage) >= 2; }).length;
-    var surplus = rows.filter(function (r) { return r.ev.grade === 'A' || r.ev.grade === 'B'; });  // 미상(U)·부적합(X) 제외
-    var sumAdd = surplus.reduce(function (a, r) { return a + r.ev.addCmd; }, 0);
+    // 종합 현황은 MyWater·가뭄포털 공개 값만 보여 줌. 추가 공급 여유(우리 모의 판정)는 [댐 평가] 탭에서 댐별로 봄
+    var rate = function (r) { return r.obs && r.ev.m.sMax ? r.obs.s / r.ev.m.sMax : null; };
+    var rr = rows.map(rate).filter(function (v) { return v != null; });
+    var plan = function (d) { return d.basic && +d.basic.annualSupply > 0 ? +d.basic.annualSupply : null; };
+    var planSum = rows.reduce(function (a, r) { return a + (plan(r.d) || 0); }, 0);
     $('ovKpis').innerHTML = [
-      ['평가 댐', rows.length + '개', (S.fKind || '다목적·용수댐') + ' · ' + (S.fRiver || '전국') + (MW ? ' (MyWater)' : '')],
-      ['현재 주의 이상 단계', warn + '개', MW && MW.dams[0] && rows[0].d.snapshotDate ? rows[0].d.snapshotDate.replace(/(\d{4})(\d\d)(\d\d)/, '$1.$2.$3') + ' 기준' : ''],
-      ['추가 공급 여유 댐', surplus.length + '개', '판정: ' + crit().label],
-      ['여유량 합계', man(sumAdd) + ' 만㎥/일', '여유 댐 합산(연계 불고려)']
+      ['대상 댐', rows.length + '개', (S.fKind || '다목적·용수댐') + ' · ' + (S.fRiver || '전국') + (MW ? ' (MyWater)' : '')],
+      ['현재 주의 이상 단계', warn + '개', MW && MW.dams[0] && rows[0] && rows[0].d.snapshotDate ? rows[0].d.snapshotDate.replace(/(\d{4})(\d\d)(\d\d)/, '$1.$2.$3') + ' 기준' : ''],
+      ['평균 저수율', rr.length ? pct(rr.reduce(function (a, v) { return a + v; }, 0) / rr.length, 0) : '-', '상시만수위 대비 · 최근 관측'],
+      ['계획 공급량 합계', fmt(planSum, 0) + ' <small>백만㎥/년</small>', '일평균 ' + man(planSum * 1e6 / 365) + '만㎥ · MyWater 제원']
     ].map(function (k) { return '<div class="kpi"><div class="k">' + k[0] + '</div><div class="v">' + k[1] + '</div><div class="d muted">' + k[2] + '</div></div>'; }).join('');
-    $('ovHint').textContent = S.src === 'd05' ? '장기모의 반순자료는 6개 댐만 있으며 나머지는 MyWater 일자료로 계산합니다.' : '';
+    $('ovHint').textContent = '';
     drawMap($('ovMap'), { maxH: 480, dams: shown, selDam: S.dam, onDam: function (n) { S.dam = n; S.tab = 'dam'; save(); showTab(); } });
-    // 계획 공급량 대비 비율(%)로 그림: 큰 댐의 절대량이 화면을 지배하지 않게. 음수는 '단독 모의로는 추가 여유 없음'이라 중립색
-    var items = rows.filter(function (r) { return r.ev.addCmd != null && !r.ev.external; }).map(function (r) {
-      var plan = r.ev.m.annualMcm * 1e6 / 365, a = r.ev.addCmd;
-      if (r.ev.unknown || !(plan > 0)) return { label: r.d.name, v: 0, text: '계획량 미상 · 단독 +' + man(a) + '만', textColor: '#8a96a3' };
-      var v = a / plan * 100;
-      return { label: r.d.name, v: v, color: v >= 0 ? '#2f9e6e' : '#b9c3cd', textColor: v >= 0 ? null : '#6b7785',
-        text: (v >= 0 ? '+' + fmt(v, 0) + '% (+' + man(a) + '만)' : '여유 없음 ' + fmt(v, 0) + '%') + ' · 계획 ' + man(plan) + '만' };
+    // 댐별 현재 저수율(막대 색 = 현재 대응단계)
+    var items = rows.filter(function (r) { return rate(r) != null; }).map(function (r) {
+      var cs = curStage(r.d), code = cs ? E.stageCode(cs.stage) : -1;   // 위치도와 같은 색
+      return { label: r.d.name, v: rate(r) * 100, color: code > 0 ? SC[code] : code === 0 ? '#2f9e6e' : '#9aa7b4', text: pct(rate(r), 0) + ' · ' + fmt(r.obs.s, 1) + '백만㎥' + (cs ? ' · ' + cs.stage : '') };
     });
     var cv = $('cOvBars'); cv.parentNode.style.height = Math.max(260, items.length * 22 + 20) + 'px';
     C.drawHBars(cv, items, '%');
-    var h = '<table class="t"><tr><th>댐</th><th>수계</th><th>구분</th><th>최근 저수량<br>(백만㎥)</th><th>저수율<br>(상시만수위)</th><th>현재 대응단계</th><th>기준저수량 관심/주의/심각</th><th>계획 공급량<br>(연 백만㎥ / 일평균 만㎥)</th><th>모의기간</th><th>연 부족<br>(회/년)</th><th>일 신뢰도</th><th>추가 여유<br>(단독 모의, 만㎥/일)</th><th>평가</th></tr>';
+    var h = '<table class="t"><tr><th>댐</th><th>수계</th><th>구분</th><th>최근 저수량<br>(백만㎥)</th><th>저수율<br>(상시만수위)</th><th>현재 대응단계</th><th>기준저수량 관심/주의/심각</th><th>계획 공급량<br>(연 백만㎥ / 일평균 만㎥)</th><th>관측 기간</th></tr>';
     rows.forEach(function (r) {
-      var d = r.d, ev = r.ev, m = ev.m, sn = d.snapshot, g = GRADE[ev.grade];
+      var d = r.d, m = r.ev.m, sn = d.snapshot, pl = plan(d);
       h += '<tr class="click" data-dam="' + esc(d.name) + '"><td><b>' + esc(d.name) + '</b>' + (hasStage(d.name) ? ' <span class="tag">단계분석</span>' : '') + (d.d05 ? ' <span class="tag">장기모의</span>' : '') + '</td><td>' + esc(d.river || '') + '</td><td>' + d.kind + '</td>' +
-        '<td>' + (r.obs ? fmt(r.obs.s, 1) : '-') + '</td><td>' + (r.obs && m.sMax ? pct(r.obs.s / m.sMax, 0) : '-') + '</td>' +
+        '<td>' + (r.obs ? fmt(r.obs.s, 1) : '-') + '</td><td>' + (rate(r) != null ? pct(rate(r), 0) : '-') + '</td>' +
         '<td>' + stageCell(d) + '</td><td>' + (sn && !(sn.g > 0) ? '<span class="muted small">미적용' + (LINKED[d.name] ? '(연계: ' + esc(LINKED[d.name]) + ')' : '') + '</span>' : '') + (sn && sn.g ? thrTxt(sn.g) + ' / ' + thrTxt(sn.j) + ' / ' + thrTxt(sn.ss) + (!(sn.j > 0) ? ' <span class="muted small" title="MyWater가 0 또는 빈 값으로 공개한 단계는 기준이 정해지지 않은 것으로 봅니다.">(주의 미설정)</span>' : '') + (sharedSnap(d) ? ' <span class="tag">연계</span>' : '') : (sn ? '' : '<span class="muted">-</span>')) + '</td>' +
-        '<td>' + (ev.unknown ? '<span class="muted">미상</span>' : fmt(m.annualMcm, 1) + ' / ' + man(m.annualMcm * 1e6 / 365)) + '</td><td>' + m.dates[0].slice(0, 4) + '~' + m.dates[m.dates.length - 1].slice(0, 4) + (m.src === 'd05' ? ' (장기모의)' : '') + '</td>' +
-        '<td>' + ev.mt0.year.def + '/' + ev.mt0.year.n + '</td><td>' + pct(ev.mt0.stepRel, 1) + '</td>' +
-        '<td class="' + (ev.addCmd > 0 ? 'down' : 'muted') + '">' + (ev.external ? '-' : (ev.addCmd > 0 ? '+' : '') + man(ev.addCmd)) + '</td><td><span class="pill ' + g[1] + '">' + g[0] + '</span></td></tr>';
+        '<td>' + (pl == null ? '<span class="muted">미공개</span>' : fmt(pl, 1) + ' / ' + man(pl * 1e6 / 365)) + '</td><td>' + (d.mw ? d.mw.start.slice(0, 4) + '~' + (r.obs ? r.obs.date.slice(0, 4) : '') : '-') + '</td></tr>';
     });
-    h += '</table><p class="hint">‘추가 공급 가능’은 기존 공급량(MyWater 연간 용수공급용량)을 유지한 채 판정 기준을 만족하는 최대 추가량입니다. 음수는 같은 단순 조건(댐 단독, 매일 같은 양, 1990년 이후 실측 유입)으로는 계획량 위에 더 낼 여유가 없다는 뜻이며, 계획량이 잘못됐다는 뜻은 아닙니다. ‘평가 부적합’은 외부 도수에 의존해(기존 공급량이 유입량보다 크거나, 다른 하천에서 끌어온 물이 유입량에 섞여 있어) 단독 물수지로 평가할 수 없는 댐입니다. 행을 클릭하면 상세 평가로 이동합니다.</p>';
+    h += '</table><p class="hint">이 표와 그래프는 MyWater(K-water)·국가가뭄정보포털이 공개한 값 그대로입니다. 추가로 공급할 수 있는지는 이 플랫폼의 모의 결과라서 여기에는 싣지 않았습니다. 행을 클릭하면 [댐 평가] 탭에서 판정 기준을 골라 그 댐의 추가 공급 가능량을 볼 수 있습니다.</p>';
     $('ovTable').innerHTML = h;
     qsa('#ovTable tr.click').forEach(function (tr) { tr.onclick = function () { S.dam = tr.dataset.dam; S.tab = 'dam'; save(); showTab(); }; });
   }
@@ -1368,7 +1366,7 @@
     S.tab = 'plant'; renderPlant(); var pv = $('plVerdict').innerHTML, pt = $('plTable').innerHTML, pd = $('plDetail').innerHTML;
     S.tab = cur; showTab();
     pr.innerHTML = '<h1>물담 · 댐 용수공급 평가 결과</h1><div class="small">작성 ' + new Date().toLocaleDateString('ko-KR') + ' · 판정 기준: ' + esc(crit().label) + '</div>' +
-      '<h2>1. 댐별 평가 총괄</h2>' + ov + '<h2>2. 댐 평가: ' + esc(S.dam) + '</h2><div>' + dv + '</div>' + dr +
+      '<h2>1. 댐별 현황 (공개 자료)</h2>' + ov + '<h2>2. 댐 평가: ' + esc(S.dam) + '</h2><div>' + dv + '</div>' + dr +
       '<h2>3. 정수장 공급 검토</h2><div>' + pv + '</div>' + pt + pd;
     window.print();
   }
