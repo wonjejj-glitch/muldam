@@ -1144,7 +1144,8 @@
   }
   function rtParams() {
     if (!S.rt) S.rt = {};
-    var d = { sel: {}, D: 'route', lwl: {}, hwl: {}, pMin: 1, pMax: 120, hMax: 100 };
+    var d = { sel: {}, D: 'route', lwl: {}, hwl: {}, pMin: 1, pMax: 70, hMax: 100 };
+    if (S.rt.v !== 2) { S.rt.v = 2; if (S.rt.pMax === 120) S.rt.pMax = 70; }   // 관로 최대 수두 기본값 120 → 70m
     Object.keys(d).forEach(function (k) { if (S.rt[k] == null) S.rt[k] = d[k]; });
     return S.rt;
   }
@@ -1152,14 +1153,14 @@
     var cp = Object.assign({}, COST.DEF, costParams()), qd = Q * cp.peak / 86400;
     var lwl = pr.lwl[key] != null ? pr.lwl[key] : (dam && dam.basic.lwl != null ? dam.basic.lwl : 0);
     var hwl = pr.hwl[key] != null ? pr.hwl[key] : (hwlOf(p) != null ? hwlOf(p) : Math.round(r.pts[r.pts.length - 1][3] + 5));   // HWL 미입력: 노선 끝 지반고 + 5m
-    var ck = [r.name, Q, lwl, hwl, pr.D, pr.pMin, pr.pMax, pr.hMax, JSON.stringify(costParams())].join('|');
+    var ck = [r.name, Q, lwl, hwl, dam && dam.basic.nwl, pr.D, pr.pMin, pr.pMax, pr.hMax, JSON.stringify(costParams())].join('|');
     if (RTC[ck]) return RTC[ck];
     var Dm = {}, autoD = COST.chooseD(qd, cp.vMax, cp.C, cp.sMax);
     r.segments.forEach(function (s, k) {
       if (pr.D !== 'route') { Dm[k] = +pr.D; return; }
       var m = /D(\d+)/.exec(s.kind); if (m) Dm[k] = +m[1]; else if (s.kind !== 'TUNNEL') Dm[k] = autoD;
     });
-    var d = Hydro.design(r, { q: qd, C: cp.C, lwl: lwl, hwl: hwl, cover: 2, pMin: pr.pMin, pMax: pr.pMax, hMax: pr.hMax, arrive: 6, intakeAt: r.intakeKm || 0, tunnelInv: r.tunnelInv || {}, D: Dm });
+    var d = Hydro.design(r, { q: qd, C: cp.C, lwl: lwl, hwl: hwl, cover: 2, pMin: pr.pMin, pMax: pr.pMax, hMax: pr.hMax, arrive: 6, intakeAt: r.intakeKm || 0, autoIntake: 2, srcMax: dam && dam.basic.nwl != null ? dam.basic.nwl : null, tunnelInv: r.tunnelInv || {}, D: Dm });
     var c = COST.fromDesign(Q, r, d, costParams());
     var tun = [];
     r.segments.forEach(function (s, k) { if (s.kind !== 'TUNNEL') return; var a = Infinity, b = -Infinity; for (var i = 0; i < d.x.length; i++) if (d.seg[i] === k) { a = Math.min(a, d.x[i]); b = Math.max(b, d.x[i]); } if (a < b) tun.push([a, b]); });
@@ -1217,8 +1218,8 @@
     $('rtKpis').innerHTML = [
       ['노선 연장', fmt(d.lengthKm, 2) + ' <small>km</small>', '터널 ' + fmt(c.tunnelKm, 2) + 'km · 도로 ' + (r.roadShare != null ? pct(r.roadShare, 0) : '미상') + ' · D' + segD.join('/D')],
       ['가압장', d.pumps.length + ' <small>개소</small> ' + fmt(d.hTot, 0) + ' <small>m</small>', '동력 ' + fmt(d.kW, 0) + 'kW'],
-      ['감압밸브', d.prv.length + ' <small>개소</small> ' + fmt(d.prvTot, 0) + ' <small>m</small>', '정수장 도달 동수두 EL.' + fmt(d.arrive, 1)],
-      ['관로 수두', fmt(d.maxRes, 0) + ' <small>m 최대</small>', '최소 ' + fmt(d.minRes, 1) + 'm (' + fmt(d.minResX, 1) + 'km)' + (d.ok ? '' : ' · 배치 실패')],
+      ['감압밸브', d.prv.length + ' <small>개소</small> ' + fmt(d.prvTot, 0) + ' <small>m</small>', (d.prv.some(function (v) { return v.dHmax != null; }) ? '만수위 때 ' + fmt(d.prvTot + d.srcRise, 0) + 'm · ' : '') + '도달 EL.' + fmt(d.arrive, 1)],
+      ['관로 수두', fmt(d.maxRes, 0) + ' <small>m 최대</small>', (d.maxRes > pr.pMax + 0.5 ? '상한 ' + fmt(pr.pMax, 0) + 'm 초과(' + fmt(d.maxResX, 1) + 'km, 급경사·터널 출구) · ' : '상한 ' + fmt(pr.pMax, 0) + 'm 이내 · ') + '최소 ' + fmt(d.minRes, 1) + 'm' + (d.ok ? '' : ' · 배치 실패')],
       ['총사업비', eok(c.cost.total) + ' <small>억원</small>', r.reportTotal ? '보고서 ' + fmt(r.reportTotal, 0) + '억 (' + (c.cost.total / 1e8 >= r.reportTotal ? '+' : '') + fmt((c.cost.total / 1e8 / r.reportTotal - 1) * 100, 1) + '%)' : '2026년 단가'],
       ['30년 총비용', eok(c.lcc) + ' <small>억원</small>', '전력비 현가 ' + eok(c.powerPV) + '억 · ' + fmt(c.unitCost, 0) + '원/㎥']
     ].map(function (k) { return '<div class="kpi"><div class="k">' + k[0] + '</div><div class="v">' + k[1] + '</div><div class="d muted">' + k[2] + '</div></div>'; }).join('');
@@ -1229,8 +1230,10 @@
     }).join('') + '</table>';
     qsa('#rtCmp tr.click').forEach(function (tr) { tr.onclick = function () { var rr = list.filter(function (q) { return q.name === tr.dataset.r; })[0]; rtParams().sel[key] = tr.dataset.r; save(); if (rr && rr.dam !== damName && PR.cands.some(function (c) { return c.dam.name === rr.dam; })) { plSelDam = rr.dam; renderPlant(); } else renderRoute(); }; });
     // 시설
-    var fac = d.pumps.map(function (q, k) { return '<tr><td>P' + (k + 1) + ' ' + (k === 0 ? '취수가압장' : '가압장') + '</td><td>' + fmt(q.x, 2) + '</td><td>' + fmt(q.ground, 0) + '</td><td>' + fmt(q.hIn, 1) + ' → ' + fmt(q.hOut, 1) + '</td><td>' + fmt(q.H, 1) + 'm · ' + fmt(q.kW, 0) + 'kW</td></tr>'; })
-      .concat(d.prv.map(function (q, k) { return '<tr><td>V' + (k + 1) + ' 감압밸브</td><td>' + fmt(q.x, 2) + '</td><td>' + fmt(q.ground, 0) + '</td><td>' + fmt(q.hIn, 1) + ' → ' + fmt(q.hOut, 1) + '</td><td>−' + fmt(q.dH, 1) + 'm</td></tr>'; }));
+    var fac = (d.pumps.some(function (q) { return q.intake; }) ? [] : ['<tr><td>취수 (자연유하)</td><td>' + fmt(d.intakeX, 2) + '</td><td class="muted">–</td><td>' + fmt(cur.lwl, 1) + '</td><td class="small muted">취수 수위 그대로 유하</td></tr>'])
+      .concat(d.pumps.map(function (q, k) { return '<tr><td>P' + (k + 1) + ' ' + (q.intake ? '취수가압장' : '가압장') + '</td><td>' + fmt(q.x, 2) + '</td><td>' + fmt(q.ground, 0) + '</td><td>' + fmt(q.hIn, 1) + ' → ' + fmt(q.hOut, 1) + '</td><td>' + fmt(q.H, 1) + 'm · ' + fmt(q.kW, 0) + 'kW</td></tr>'; }))
+      .concat(d.prv.map(function (q, k) { return '<tr><td>V' + (k + 1) + ' 감압밸브</td><td>' + fmt(q.x, 2) + '</td><td>' + fmt(q.ground, 0) + '</td><td>' + fmt(q.hIn, 1) + ' → ' + fmt(q.hOut, 1) + '</td><td>−' + fmt(q.dH, 1) + 'm' + (q.dHmax != null ? '<div class="small muted">만수위 때 −' + fmt(q.dHmax, 1) + 'm</div>' : '') + '</td></tr>'; }))
+      .sort(function (a, b) { var xa = +(/<td>([\d.]+)<\/td>/.exec(a) || [0, 0])[1], xb = +(/<td>([\d.]+)<\/td>/.exec(b) || [0, 0])[1]; return xa - xb; });
     $('rtFac').innerHTML = '<table class="t"><tr><th>시설</th><th>위치(km)</th><th>지반 EL.</th><th>동수두 EL.</th><th>양정·감압</th></tr>' + (fac.join('') || '<tr><td colspan="5" class="muted">가압·감압 없이 자연유하</td></tr>') + '</table>';
     // 저촉
     var cr = crossOf(r);
@@ -1240,7 +1243,7 @@
     var s = r.search;
     $('rtNote').innerHTML = (r.method === 'auto' ? '자동 탐색 노선: ' + fmt(s.res, 0) + 'm 격자에서 관로 공사비(도로 ' + fmt(s.uRoad / 1e6, 2) + '·도로 밖 ' + fmt(s.uOff / 1e6, 2) + '백만원/m)와 오르막 양수 비용(1m당 ' + fmt(s.lam / 1e8, 2) + '억원)의 합이 가장 작은 경로이며, 터널은 1개(최대 ' + fmt(s.tunnelMax / 1000, 0) + 'km)까지 고려했습니다. 지장물·지질·민원·하천 횡단 공법은 반영하지 않습니다. ' :
       '') +
-      '보호구역은 브이월드 공간정보(국립공원·상수원보호구역·자연환경보전지역·산림보호구역)입니다. 지반고는 Copernicus 30m DEM(수목·건물 포함 표면고)이라 ±5~10m 개략값입니다. 관저고 = 지반 − 2m, 터널은 갱구 관저고를 직선으로 잇습니다. 가압장은 하류 최고점을 넘는 데 필요한 만큼만 올리고 양정을 고르게 나눴으며, 고점 이후 남는 수두는 잔류수두 70m를 넘는 곳에서 35m까지 감압합니다(정수장 도달 여유 6m). 사업비는 2026년 단가, 30년 총비용 = 총사업비 + 전력비 현가(4.5%).';
+      '보호구역은 브이월드 공간정보(국립공원·상수원보호구역·자연환경보전지역·산림보호구역)입니다. 지반고는 Copernicus 30m DEM(수목·건물 포함 표면고)이라 ±5~10m 개략값입니다. 관저고 = 지반 − 2m, 터널은 갱구 관저고를 직선으로 잇습니다. 수압은 전 구간에서 최소 잔류수두 이상·관로 최대 수두(기본 70m, 약 700kPa) 이하로 맞춥니다. 취수 수위로 자연유하할 수 있는 데까지 보내고, 내려가다 최대 수두를 넘는 곳 직전에 감압밸브를 두며, 가압장은 수두가 바닥나는 지점(오르막 앞)에 두어 다음 고점을 넘을 만큼만 올립니다. 올린 물이 하류 저지대에서 최대 수두를 넘게 되면 덜 올리고 여러 단으로 나눕니다(정수장 도달 여유 6m). 댐 바로 아래 감압밸브는 저수위 기준 감압량과 만수위 때 감압량을 함께 적었습니다. 댐체 통과(취수탑·취수터널)는 노선이 취수 수위 아래로 내려오는 지점까지로 보고 수압 검토에서 뺐고, 터널 안은 최대 수두 검토에서 뺐습니다. 고압관을 쓰는 구간은 최대 수두를 올려서 검토하면 됩니다. 사업비는 2026년 단가, 30년 총비용 = 총사업비 + 전력비 현가(4.5%).';
   }
   function drawRouteMap(el, all, cur, dam, p) {
     var b = [Infinity, -Infinity, Infinity, -Infinity];

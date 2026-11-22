@@ -112,8 +112,10 @@
     c.jack = jack * p.jackPerSite * Math.pow(Dmax / 900, 0.6);
     c.prv = d.prv.length * p.prvPerSite;
     var sf = function (base, h) { return base.cost * Math.pow(q * p.peak / base.q, p.scaleQ) * Math.pow(Math.max(h, 20) / base.h, p.scaleH); };
-    c.intake = sf(p.intake, d.pumps.length ? d.pumps[0].H : 20);
-    c.booster = d.pumps.slice(1).reduce(function (s, pp) { return s + sf(p.booster, pp.H); }, 0);
+
+    var ip = d.pumps.filter(function (pp) { return pp.intake; })[0];
+    c.intake = sf(p.intake, ip ? ip.H : 20);
+    c.booster = d.pumps.filter(function (pp) { return pp !== ip; }).reduce(function (s, pp) { return s + sf(p.booster, pp.H); }, 0);
     c.works = c.pipe + c.tunnel + c.jack + c.prv + c.intake + c.booster;
     c.land = p.landPerM * pipeKm * 1000;
     c.overhead = c.works * p.overhead;
